@@ -1,0 +1,41 @@
+fields:
+  Source:
+    target: pkgName
+    type: string
+    required: true
+    description: 源码包名称
+  Build-Depends:
+    target: buildDepends
+    type: list
+    required: true
+    description: 构建依赖列表，多个 Package 条目取并集去重
+    merge_strategy: union_dedup
+  Build-Depends-Arch:
+    target: buildDependsArch
+    type: list
+    required: false
+    description: 架构相关的构建依赖
+    merge_strategy: union_dedup
+  Build-Depends-Indep:
+    target: buildDependsIndep
+    type: list
+    required: false
+    description: 架构无关的构建依赖
+    merge_strategy: union_dedup
+  Description:
+    target: pkgDescription
+    type: string
+    required: false
+    description: 项目描述
+  Package:
+    target: binaryPackages
+    type: list
+    required: false
+    description: 所有 binary 包条目名称列表
+
+rules:
+  merge_strategy:
+    buildDepends: union_dedup
+    buildDependsArch: union_dedup
+    buildDependsIndep: union_dedup
+  multi_package_behavior: 所有 Package 条目合并去重到单一输出，不区分主包和 common-data

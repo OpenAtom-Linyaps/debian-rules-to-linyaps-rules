@@ -1,0 +1,17 @@
+tools:
+  cmake:
+    markers: ["CMakeLists.txt"]
+    args_prefix: "-D"
+    common_args: ["CMAKE_INSTALL_PREFIX", "CMAKE_BUILD_TYPE"]
+  meson:
+    markers: ["meson.build"]
+    args_prefix: "-D"
+    common_args: ["prefix", "buildtype"]
+  make:
+    markers: ["Makefile", "GNUmakefile"]
+    args_prefix: ""
+    common_args: ["prefix", "DESTDIR"]
+  autotools:
+    markers: ["configure", "configure.ac"]
+    args_prefix: ""
+    common_args: ["prefix", "host"]

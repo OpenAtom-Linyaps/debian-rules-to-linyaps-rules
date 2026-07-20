@@ -1,0 +1,20 @@
+{
+  "global": {
+    "output_dir": "./output/${tag}",
+    "data_dir": "./data/${tag}.log",
+    "build_tmp_dir": "./build_cache",
+    "src_dir": "./src"
+  },
+  "extension": [
+    {
+      "id": "build_tool_patterns",
+      "description": "构建工具类型识别模式与编译参数参考",
+      "path": "skills/config/build-tool-patterns.yaml"
+    },
+    {
+      "id": "debian_control_schema",
+      "description": "debian/control 字段解析映射参考数据",
+      "path": "skills/config/debian-control-schema.yaml"
+    }
+  ]
+}
