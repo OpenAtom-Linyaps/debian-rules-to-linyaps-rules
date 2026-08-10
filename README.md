@@ -1,6 +1,6 @@
 # debian-rules-to-linyaps-rules
 
-分析项目源代码对应的 Debian 构建规则和构建资源，为玲珑（Linyaps）构建项目生成构建、编译规则和通用资源。
+分析项目源代码对应的 Debian 构建规则和构建资源，为如意玲珑（Linyaps）构建项目生成构建、编译规则和通用资源。
 
 ## 架构
 
