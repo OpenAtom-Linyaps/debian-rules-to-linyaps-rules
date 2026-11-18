@@ -23,14 +23,16 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 from depends import package_exists  # noqa: E402 同目录依赖解析模块
 
-PARSE_CONTROL = os.path.join(SCRIPT_DIR, 'parse-control.py')
-RESOLVE_RUNTIME = os.path.join(SCRIPT_DIR, 'resolve-runtime-deps.py')
+PARSE_CONTROL = os.path.join(SCRIPT_DIR, "parse-control.py")
+RESOLVE_RUNTIME = os.path.join(SCRIPT_DIR, "resolve-runtime-deps.py")
 
 
 def run_parse_control(control_file: str) -> dict:
     result = subprocess.run(
-        ['python3', PARSE_CONTROL, control_file],
-        capture_output=True, text=True, timeout=30,
+        ["python3", PARSE_CONTROL, control_file],
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     if result.returncode != 0:
         print(f"ERROR: parse-control.py 执行失败:\n{result.stderr}", file=sys.stderr)
@@ -44,15 +46,21 @@ def run_parse_control(control_file: str) -> dict:
 
 def run_resolve_runtime(control_info: dict, blacklist_path: str = None) -> list:
     with tempfile.NamedTemporaryFile(
-        mode='w', suffix='.yaml', delete=False, encoding='utf-8'
+        mode="w", suffix=".yaml", delete=False, encoding="utf-8"
     ) as f:
         temp_yaml_path = f.name
-        yaml.dump(control_info, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        yaml.dump(
+            control_info,
+            f,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        )
 
     try:
-        cmd = ['python3', RESOLVE_RUNTIME, temp_yaml_path]
+        cmd = ["python3", RESOLVE_RUNTIME, temp_yaml_path]
         if blacklist_path:
-            cmd.extend(['--blacklist', blacklist_path])
+            cmd.extend(["--blacklist", blacklist_path])
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
 
@@ -67,7 +75,7 @@ def run_resolve_runtime(control_info: dict, blacklist_path: str = None) -> list:
             return []
 
         runtime_info = yaml.safe_load(result.stdout) or {}
-        return runtime_info.get('runtimeDepends', [])
+        return runtime_info.get("runtimeDepends", [])
     finally:
         os.unlink(temp_yaml_path)
 
@@ -101,16 +109,20 @@ def main():
 
     control_file = sys.argv[1]
     blacklist_path = None
-    if len(sys.argv) >= 4 and sys.argv[2] == '--blacklist':
+    if len(sys.argv) >= 4 and sys.argv[2] == "--blacklist":
         blacklist_path = sys.argv[3]
 
     control_info = run_parse_control(control_file)
     runtime_depends = run_resolve_runtime(control_info, blacklist_path)
     runtime_depends = verify_runtime_deps(runtime_depends)
-    control_info['runtimeDepends'] = runtime_depends
+    control_info["runtimeDepends"] = runtime_depends
 
-    print(yaml.dump(control_info, default_flow_style=False, allow_unicode=True, sort_keys=False))
+    print(
+        yaml.dump(
+            control_info, default_flow_style=False, allow_unicode=True, sort_keys=False
+        )
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -23,9 +23,10 @@ def package_exists(pkg: str) -> bool:
         return False
     try:
         result = subprocess.run(
-            ['apt-cache', 'show', pkg],
-            capture_output=True, text=True,
-            env={'LC_ALL': 'C'},
+            ["apt-cache", "show", pkg],
+            capture_output=True,
+            text=True,
+            env={"LC_ALL": "C"},
             timeout=30,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:

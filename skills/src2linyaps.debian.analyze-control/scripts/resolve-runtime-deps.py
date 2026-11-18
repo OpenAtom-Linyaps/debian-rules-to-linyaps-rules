@@ -29,7 +29,7 @@ import yaml
 MAX_RECURSE_DEPTH = 3
 
 # 包名后缀黑名单 — 这些包不应进入运行时依赖
-RUNTIME_EXCLUDED_SUFFIXES = ('-dev', '-dbgsym', '-dbg', '-doc', '-dev-bin', '-tools')
+RUNTIME_EXCLUDED_SUFFIXES = ("-dev", "-dbgsym", "-dbg", "-doc", "-dev-bin", "-tools")
 
 
 def strip_version(pkg: str) -> str:
@@ -41,10 +41,10 @@ def strip_version(pkg: str) -> str:
     'libasound2-dev [linux-any]' → 'libasound2-dev'
     """
     pkg = pkg.strip()
-    pkg = re.sub(r'\s*\([^)]*\)', '', pkg).strip()
-    pkg = re.sub(r'\s*<![^>]+>', '', pkg).strip()
-    pkg = re.sub(r'\s*\[[^\]]*\]', '', pkg).strip()
-    pkg = re.sub(r':\w+$', '', pkg).strip()
+    pkg = re.sub(r"\s*\([^)]*\)", "", pkg).strip()
+    pkg = re.sub(r"\s*<![^>]+>", "", pkg).strip()
+    pkg = re.sub(r"\s*\[[^\]]*\]", "", pkg).strip()
+    pkg = re.sub(r":\w+$", "", pkg).strip()
     return pkg
 
 
@@ -66,9 +66,10 @@ def query_apt_depends(pkg: str, include_recommends: bool = True) -> list:
     """
     try:
         result = subprocess.run(
-            ['apt-cache', 'depends', pkg],
-            capture_output=True, text=True,
-            env={'LC_ALL': 'C'},
+            ["apt-cache", "depends", pkg],
+            capture_output=True,
+            text=True,
+            env={"LC_ALL": "C"},
             timeout=30,
         )
     except FileNotFoundError:
@@ -79,29 +80,35 @@ def query_apt_depends(pkg: str, include_recommends: bool = True) -> list:
         return []
 
     if result.returncode != 0:
-        if 'Unable to locate package' in result.stderr or \
-           '没有发现匹配' in result.stderr:
+        if (
+            "Unable to locate package" in result.stderr
+            or "没有发现匹配" in result.stderr
+        ):
             print(f"WARNING: 未找到包 {pkg}，跳过", file=sys.stderr)
         else:
             print(f"WARNING: 查询 {pkg} 失败: {result.stderr.strip()}", file=sys.stderr)
         return []
 
-    dep_types = ['Depends']
+    dep_types = ["Depends"]
     if include_recommends:
-        dep_types.append('Recommends')
-    pattern = r'^  (' + '|'.join(dep_types) + r'):\s+(.+)'
+        dep_types.append("Recommends")
+    pattern = r"^  (" + "|".join(dep_types) + r"):\s+(.+)"
 
     deps = []
     for line in result.stdout.splitlines():
         line_stripped = line.strip()
-        if not line_stripped or line_stripped.startswith('<') or line_stripped.endswith('>'):
+        if (
+            not line_stripped
+            or line_stripped.startswith("<")
+            or line_stripped.endswith(">")
+        ):
             continue
-        if not line.startswith('  '):
+        if not line.startswith("  "):
             continue
         m = re.match(pattern, line)
         if m:
             dep_pkg = m.group(2).strip()
-            if dep_pkg.startswith('<'):
+            if dep_pkg.startswith("<"):
                 continue
             deps.append(dep_pkg)
     return deps
@@ -133,7 +140,9 @@ def _resolve_recursive(
         if d not in runtime_deps_set:
             runtime_deps.append(d)
             runtime_deps_set.add(d)
-        _resolve_recursive(d, seen, runtime_deps, runtime_deps_set, blacklist, depth + 1)
+        _resolve_recursive(
+            d, seen, runtime_deps, runtime_deps_set, blacklist, depth + 1
+        )
 
 
 def resolve_runtime_depends(build_depends: list, blacklist: set = None) -> list:
@@ -168,7 +177,9 @@ def resolve_runtime_depends(build_depends: list, blacklist: set = None) -> list:
             if d not in runtime_deps_set:
                 runtime_deps.append(d)
                 runtime_deps_set.add(d)
-            _resolve_recursive(d, seen, runtime_deps, runtime_deps_set, blacklist, depth=1)
+            _resolve_recursive(
+                d, seen, runtime_deps, runtime_deps_set, blacklist, depth=1
+            )
 
     return sorted(runtime_deps)
 
@@ -180,10 +191,13 @@ def load_blacklist(path: str) -> set:
             print(f"WARNING: 黑名单文件不存在: {path}，跳过过滤", file=sys.stderr)
         return set()
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, list):
-            print(f"WARNING: 黑名单文件 {path} 格式错误（需要 JSON 数组），跳过过滤", file=sys.stderr)
+            print(
+                f"WARNING: 黑名单文件 {path} 格式错误（需要 JSON 数组），跳过过滤",
+                file=sys.stderr,
+            )
             return set()
         return set(data)
     except (json.JSONDecodeError, IOError) as e:
@@ -193,13 +207,16 @@ def load_blacklist(path: str) -> set:
 
 def main():
     if len(sys.argv) < 2:
-        print("用法: python3 resolve-runtime-deps.py <control_yaml_path> [--blacklist <blacklist_json_path>]", file=sys.stderr)
+        print(
+            "用法: python3 resolve-runtime-deps.py <control_yaml_path> [--blacklist <blacklist_json_path>]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # 解析参数
     yaml_path = sys.argv[1]
     blacklist_path = None
-    if len(sys.argv) >= 4 and sys.argv[2] == '--blacklist':
+    if len(sys.argv) >= 4 and sys.argv[2] == "--blacklist":
         blacklist_path = sys.argv[3]
 
     blacklist = load_blacklist(blacklist_path)
@@ -207,7 +224,7 @@ def main():
         print(f"INFO: 已加载 {len(blacklist)} 个黑名单包名", file=sys.stderr)
 
     try:
-        with open(yaml_path, 'r', encoding='utf-8') as f:
+        with open(yaml_path, "r", encoding="utf-8") as f:
             control_info = yaml.safe_load(f)
     except FileNotFoundError:
         print(f"ERROR: 文件不存在: {yaml_path}", file=sys.stderr)
@@ -216,16 +233,25 @@ def main():
         print(f"ERROR: YAML 解析失败: {e}", file=sys.stderr)
         sys.exit(1)
 
-    build_depends = control_info.get('buildDepends', [])
+    build_depends = control_info.get("buildDepends", [])
     if not build_depends:
         print("WARNING: control YAML 中 buildDepends 为空", file=sys.stderr)
-        print(yaml.dump({'runtimeDepends': []}, default_flow_style=False, allow_unicode=True, sort_keys=False))
+        print(
+            yaml.dump(
+                {"runtimeDepends": []},
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            )
+        )
         return
 
     runtime_deps = resolve_runtime_depends(build_depends, blacklist)
-    result = {'runtimeDepends': runtime_deps}
-    print(yaml.dump(result, default_flow_style=False, allow_unicode=True, sort_keys=False))
+    result = {"runtimeDepends": runtime_deps}
+    print(
+        yaml.dump(result, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -208,6 +208,22 @@ bash tests/test-fallback.sh
 bash tests/test-mismatch.sh
 ```
 
+## 第三方依赖（宿主系统）
+
+脚本运行依赖以下宿主系统预装的工具，运行前需确认可用：
+
+| 工具 | 使用方 | 用途 | 是否必需 |
+|------|--------|------|----------|
+| `python3` | 所有 `.py` 脚本；跨脚本 `subprocess.run(['python3', ...])` 编排 | 解析/生成/校验 | 必需 |
+| `apt-get` | `test-build-deps.sh` | `apt-get build-dep --dry-run` 检测 `Build-Depends` 可用性（需 root） | Path A 必需 |
+| `apt-cache` | `depends.py`、`resolve-runtime-deps.py` | `apt-cache show`/`apt-cache depends` 查询运行时依赖 + 存在性核验 | Path A 必需 |
+| `git` | `linyaps-git-workflow`（仅 Multica） | clone/commit/push 工程仓库 | Multica 路径必需 |
+| `quilt` | `migrate-patches.py` | `quilt push -a` 验证补丁应用（A3.3 补丁迁移） | 补丁迁移时必需 |
+| `patch` | 容器内 `patch -p1`（由 `generate-linglong-yaml.py` 自动追加到 `build_depends`）；宿主 `quilt` 内部调用 | 应用补丁 | 补丁迁移时必需 |
+| `dpkg` | `test-build-deps.sh` fallback | `dpkg-query` 兜底查询（`apt-get` 不可用时） | 可选 |
+
+> **说明**：`patch` 命令在玲珑构建**容器内**执行（非宿主），由 `generate-linglong-yaml.py` 检测 `build_section` 含 `patch -p1` 时自动追加 `patch` 到 `buildext.apt.build_depends`。宿主 `quilt` 内部亦调用 `patch`，故宿主需同时预装 `quilt` 与 `patch`。
+
 ## 约束条件
 
 | 议题 | 决策 |

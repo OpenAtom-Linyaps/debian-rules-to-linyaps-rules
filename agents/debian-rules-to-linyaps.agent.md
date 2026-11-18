@@ -93,6 +93,13 @@ skills:
 - **A3.1 机械分析（脚本）**：`python3 skills/src2linyaps.debian.analyze-rules/scripts/analyze-rules.py <project_path> <debian_path> [control_yaml]` → 输出 `build_tool`、`build_args`、`baseline`、`resources`。
 - **A3.2 LLM 语义分析**：只读 `debian/rules` 的 override 段（`override_dh_*`），不重复 A3.1 已由 `analyze-rules.py` 解析的机械结果；识别额外编译参数 → `extra_args`，输出完整 `build_section`。
 - 合并 A3.1 + A3.2 → 最终 YAML（含 `build_section`、`build_tool`、`build_args`、`extra_args`、`baseline`、`resources`）。
+- **A3.3 补丁迁移**（仅当 `debian/patches/series` 存在且含激活补丁时执行）：
+  a. 执行 `python3 skills/src2linyaps.debian.analyze-rules/scripts/migrate-patches.py --project-path <project_path> --debian-path <debian_path> --build-tmp-dir <build_tmp_dir> --source-name <source_name> --package-id <package_id> --target-yaml <target_linglong.yaml>` → stdout YAML 含 `patches_applied`/`patches_failed`/`patch_commands`/`patches_dir`/`has_patches`（`--source-patches-dir`/`--patches-dir` 可选，默认从 `--debian-path/patches` 与 `--target-yaml` 父目录推导）
+  b. `has_patches: false`（无 series、series 为空、native 包）→ 跳过 A3.3，build_section 不变，不影响后续流程
+  c. `patches_failed` 非空 → LLM 读取 `patches_failed[].rej_content` 与 `patches_failed[].error`，按当前源码修改对应补丁文件（调整行号、更新上下文、拆分/合并 hunk），重跑 `migrate-patches.py --retry`
+  d. 仍失败 → 跳过该补丁，记 `patch_skipped, <package_id>, <patch_name>` 警告，继续迁移其余补丁（非阻断）
+  e. 将 `patch_commands` 前置注入 A3.2 输出的 `build_section`（`patch_commands + "\n" + build_section`）
+  f. 验证通过的补丁文件已由脚本复制到 `<target_yaml_dir>/patches/`（与 `linglong.yaml` 同级）
 
 #### Step A4: 工程生成
 
