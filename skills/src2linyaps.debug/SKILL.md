@@ -8,12 +8,8 @@ description: >
   修复校验通过后默认调用 `linyaps-src-init-dispatch` 的 `assign_packer` 指派
   linyaps-packer 重新打包（用户可指定不指派，直接结束）。
   不调用仓库外 skills（如 resource-collector / deb-analysis / linglong-fix / compat-testing）。
-argument-hint: '<layer_path> <problem_desc>'
+argument-hint: '<layer_path> <problem_desc> [--src-path=<path>] [--src-url=<url>]'
 user-invocable: true
-tools:
-  read: true; edit: true; search: true; execute: true; todo: true; skill: true
-permission:
-  skill: { "*": "allow" }
 ---
 
 # src2linyaps.debug — 调试纠正 SKILL
