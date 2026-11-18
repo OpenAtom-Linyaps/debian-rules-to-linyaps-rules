@@ -1,0 +1,2 @@
+# The vlc executable is in vlc-bin but the .desktop file is only relevant to vlc(-with-x)
+vlc binary: desktop-command-not-in-package usr/share/applications/vlc.desktop usr/bin/vlc

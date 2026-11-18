@@ -1,0 +1,12 @@
+vlc (3.0.22~rc1-1) unstable; urgency=medium
+
+  This release switches from lua 5.2 to lua 5.4. While the lua plugins included
+  upstream are expected to be compatible with lua 5.4, custom scripts or plugins
+  downloaded from third party sources might not work with lua 5.4. If you
+  experience issues, please check whether you are using such plugins and update
+  them to a lua 5.4 compatible version.
+
+  For incompatibilities between lua 5.4 and previous versions, please check
+  https://www.lua.org/manual/5.4/manual.html#8.
+
+ -- Sebastian Ramacher <sramacher@debian.org>  Sun, 28 Sep 2025 13:01:35 +0200

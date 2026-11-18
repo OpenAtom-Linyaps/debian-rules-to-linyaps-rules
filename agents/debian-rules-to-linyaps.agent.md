@@ -139,6 +139,11 @@ skills:
 - 黑名单配置位于 `skills/src2linyaps.debian.build-res-generate/build-section-blacklist.yaml`
 - 构建工具类型由 `src2linyaps.source.detect-tool` 前置检测提供
 
+### 构建缓存清理约束
+- 处理完成后的工程目录若需提交入库，必须清理构建缓存与下载产物，禁止将 `linglong/`、`bins/`、`reports/`、`build_cache/`、`file_res/`、`*.layer`、`*.uab` 以及下载的原始套件 `*.deb`/`*.tar.*`/`*.tgz`/`*.zip` 等 `git add` 加入提交
+- 提交前使用 `linyaps-git-workflow` skill 的 `clean_project_cache.sh <project_dir>` 清理缓存，并以 `pre-commit-guard.sh <project_dir>` 确认暂存区无任何缓存内容
+- 仅保留工程最小必要文件：`linglong.yaml`、`config/`（以及 `scripts/`、`templates/` 若存在）
+
 ## Skills 目录约定
 
 本 agent 协调以下专业 skills，各 skill 的资源路径约定如下：

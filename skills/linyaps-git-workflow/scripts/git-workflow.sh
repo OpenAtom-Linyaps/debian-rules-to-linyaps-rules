@@ -14,6 +14,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 ACTION="${1:-}"
+
+clean_project_cache() {
+  # $1: 工程目录；调用配套缓存清理脚本
+  local dir="$1"
+  if [[ -f "$SCRIPT_DIR/clean_project_cache.sh" ]]; then
+    bash "$SCRIPT_DIR/clean_project_cache.sh" "$dir" || true
+  else
+    echo "警告: 未找到 clean_project_cache.sh，跳过缓存清理: $dir" >&2
+  fi
+}
+
+pre_commit_guard() {
+  # $1: 工程/仓库目录；命中缓存模式即退出码 1
+  local dir="$1"
+  if [[ -f "$SCRIPT_DIR/pre-commit-guard.sh" ]]; then
+    bash "$SCRIPT_DIR/pre-commit-guard.sh" "$dir" || return $?
+  else
+    echo "警告: 未找到 pre-commit-guard.sh，跳过提交守卫" >&2
+  fi
+}
 shift || true
 
 # 参数
@@ -75,8 +95,22 @@ elif [[ "$ACTION" == "commit_and_push" ]]; then
 
   cd "$PROJECTS_ROOT"
 
+  # 清理构建缓存：对每个 CI_ll_* 工程目录调用 clean_project_cache.sh，
+  # 确保 linglong/、bins/、reports/、build_cache/、*.layer、*.uab、下载包等不被入库
+  echo "== 清理构建缓存 =="
+  while IFS= read -r -d '' proj; do
+    clean_project_cache "$proj"
+  done < <(find "$PROJECTS_ROOT" -maxdepth 1 -type d -name 'CI_ll_*' -print0 2>/dev/null)
+
   # 暂存变更
   git add . 2>/dev/null || true
+
+  # 提交前守卫：阻止缓存被误提交
+  echo "== pre-commit 守卫检查 =="
+  if ! pre_commit_guard "$PROJECTS_ROOT"; then
+    echo "{\"committed\":false,\"commit_sha\":\"\",\"packages\":[],\"blocked\":\"pre_commit_guard\"}"
+    exit 0
+  fi
 
   # 列出暂存文件
   CACHED_FILES=$(git diff --cached --name-only 2>/dev/null || true)

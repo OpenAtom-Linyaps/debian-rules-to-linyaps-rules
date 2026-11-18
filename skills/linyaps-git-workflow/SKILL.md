@@ -80,19 +80,82 @@ Git 仓库克隆 + 推送权限验证。
 
 **执行逻辑**：
 1. **切换目录**：切换到 `projects_root`
-2. **清理暂存**：只保留工程最小必要文件（`linglong.yaml`、`config/`）
-3. **`git add .`** + `git diff --cached --name-only` 列出暂存文件
-4. **动态生成 commit message**：
+2. **清理构建缓存**：对每个 `CI_ll_*` 工程目录调用 `scripts/clean_project_cache.sh <proj_dir>`（清理 `linglong/`、`bins/`、`reports/`、`build_cache/`、`*.layer`、`*.uab`、下载的原始套件文件等），只保留工程最小必要文件（`linglong.yaml`、`config/`）
+3. **`git add .`**
+4. **pre-commit 守卫**：调用 `scripts/pre-commit-guard.sh <projects_root>`，命中缓存模式（`*.layer`、`*.uab`、`linglong/`、`bins/`、`reports/`、`build_cache/`、`.linyaps-locks/`）即退出码 1 → **阻断提交**，返回 `committed:false, blocked:pre_commit_guard`
+5. **`git diff --cached --name-only`** 列出暂存文件
+6. **动态生成 commit message**：
    - 仅新增包 → `feat: add debian-rules analysis for <package_id>`
    - 仅修改包 → `fix: update debian-rules analysis for <package_id>`
    - 多个包 → `feat: add/update multiple packages`
    - 无 CI_ll_ 变更 → `chore: update analysis scripts`
-5. **`git commit`**：若无变更，记录已存在，不中断
-6. **`git push`**：失败则记录 `git_push_failed`
-7. **记录结果**到 `data_dir`：`git_commit_success, <commit_sha>` 或 `git_push_failed, <error>`
+7. **`git commit`**：若无变更，记录已存在，不中断
+8. **`git push`**：失败则记录 `git_push_failed`
+9. **记录结果**到 `data_dir`：`git_commit_success, <commit_sha>` 或 `git_push_failed, <error>`
+
+## 提交前缓存清理
+
+任何 git commit/push 之前必须清理 `CI_ll_*` 工程目录内的构建缓存与下载产物，
+避免 `*.layer`、`linglong/`、`bins/`、`reports/`、`.linyaps-locks/` 等缓存被意外
+推送到仓库。`commit_and_push` 已自动调用以下两个脚本，也可手动执行：
+
+```bash
+# 清理指定工程目录缓存（--dry-run 预览，不实际删除）
+"${skill_root}/scripts/clean_project_cache.sh" <project_dir> [--dry-run]
+
+# 提交前守卫（git add 后调用，命中缓存即退出码 1 阻断提交）
+"${skill_root}/scripts/pre-commit-guard.sh" <project_dir> [--ignore-patterns=<regex>]
+```
+
+### 清理内容
+
+在指定的 `<project_dir>` 内删除：
+
+- 核心构建缓存：`linglong/`、`bins/`、`reports/`、`build_cache/`、`file_res/`、
+  `*.layer`、`*.uab`
+- 下载产物：`*.deb`、`*.tar.gz|bz2|xz|zst`、`*.tgz`、`*.zip`
+  - `src/`、`source/` 仅在确认为下载/解压缓存时删除（以该层级是否存在已被
+    git 跟踪的工程源文件判断，绝不删除真实源码）
+
+保留：`linglong.yaml`、`config/`、`scripts/`、`templates/`。
+
+### pre-commit 守卫
+
+`pre-commit-guard.sh` 在 `git add .` 后检查指定目录暂存列表，命中以下模式即
+退出码 1（阻断提交）：`*.layer`、`*.uab`、`/linglong/`、`/bins/`、`/reports/`、
+`/build_cache/`、`.linyaps-locks/`。可用 `--ignore-patterns=<regex>` 覆盖默认模式。
+
+### 兜底检查（Fallback，由 LLM 执行）
+
+确定性脚本无法覆盖全部场景（未知格式、新产生的缓存类型、脚本误留物等），
+因此提交前追加一步由 LLM 判断的兜底扫描。请按以下步骤执行：
+
+1. 用 `du` 扫描当前 session 对应的工程目录，定位可疑的大文件 / 大目录：
+   ```bash
+   # 各一级子目录体积（大到小）
+   du -h --max-depth=1 <project_dir> | sort -h
+   # 大文件（含深层，仅统计普通文件）
+   find <project_dir> -type f -size +50M -exec du -h {} + | sort -h
+   ```
+2. 依据扫描结果识别可疑项，可疑特征包括：
+   - 体积异常的缓存目录：`linglong/`、`bins/`、`reports/`、`build_cache/`、
+     `file_res/`、`src/`、`source/`（未被 git 跟踪时的下载/解压物）
+   - 大体积归档/产物：`*.layer`、`*.uab`、`*.deb`、`*.tar.*`、`*.tgz`、`*.zip`，
+     以及任何体积 >100M 且不属于必要源文件的文件
+   - 未被 `.gitignore` / `clean_project_cache.sh` 覆盖的新增缓存类型
+3. 由 LLM 判断并执行：对确认的可疑项调用 `clean_project_cache.sh <project_dir>`；
+   对脚本未覆盖的新增缓存，直接 `rm -rf` 前先在目录内确认它不是源码/必要文件，
+   并可通过 `git ls-files --error-unmatch -- <path>` 确认是否被 git 跟踪
+   （已跟踪则绝不删除）。
+4. 兜底清理后再次运行 `pre-commit-guard.sh <project_dir>` 确认无残留缓存暂存。
 
 ## 约束
 
 1. **仅 debian-rules-to-linyaps agent 调用**
 2. **与 agent_config_path 指向的 agent-config.json 的 global.projects_repo 绑定**
 3. push 失败视为阻塞性错误，与初始化失败同等处理
+4. **提交内容限制（强制）**：构建缓存与构建产物（含但不限于 `linglong/`、
+   `bins/`、`reports/`、`build_cache/`、`file_res/`、`*.layer`、`*.uab`，以及下载的
+   原始套件 `*.deb`/`*.tar.*`/`*.tgz`/`*.zip` 等）一律**禁止** `git add` 加入提交。
+   提交前必须先执行 `clean_project_cache.sh`，再以 `pre-commit-guard.sh` 确认暂存区
+   无任何缓存内容，通过后方可 `git commit`

@@ -1,0 +1,329 @@
+#!/usr/bin/make -f
+
+DEB_BUILD_MAINT_OPTIONS=hardening=+all
+
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/pkg-info.mk
+include /usr/share/dpkg/vendor.mk
+
+export VLC_COMPILE_BY=$(DEB_VENDOR) buildd for $(DEB_DISTRIBUTION)
+export VLC_COMPILE_HOST=$(DEB_VENDOR) $(DEB_HOST_ARCH) buildd
+
+# custom build option: debug
+# VLC enables assertions if --enable-debug is passed to the configure script. To debug issues, it
+# might be useful to have them enabled. In that case, rebuilding the package with
+# DEB_BUILD_OPTIONS=debug produces a build with the assertions enabled.
+ifneq (,$(filter debug,$(DEB_BUILD_OPTIONS)))
+confflags += --enable-debug
+else
+confflags += --disable-debug
+endif
+
+# configure flags
+confflags += \
+	--config-cache \
+	--disable-update-check \
+	--enable-fast-install \
+	--docdir=/usr/share/doc/vlc \
+	--with-binary-version=$(DEB_VERSION) \
+	$(NULL)
+# configure features
+confflags += \
+	--enable-aa \
+	--enable-aribsub \
+	--enable-avahi \
+	--enable-bluray \
+	--enable-caca \
+	--enable-chromaprint \
+	--enable-chromecast \
+	--enable-dav1d \
+	--enable-dbus \
+	--enable-dvbpsi \
+	--enable-dvdnav \
+	--enable-faad \
+	--enable-flac \
+	--enable-fluidsynth \
+	--enable-freetype \
+	--enable-fribidi \
+	--enable-gles2 \
+	--enable-gnutls \
+	--enable-harfbuzz \
+	--enable-jack \
+	--enable-kate \
+	--enable-libass \
+	--enable-libxml2 \
+	--enable-lirc \
+	--enable-matroska \
+	--enable-mod \
+	--enable-mpc \
+	--enable-mpg123 \
+	--enable-mtp \
+	--enable-ncurses \
+	--enable-notify \
+	--enable-ogg \
+	--enable-opus \
+	--enable-pulse \
+	--enable-qt \
+	--enable-realrtsp \
+	--enable-samplerate \
+	--enable-sftp \
+	--enable-shine \
+	--enable-shout \
+	--enable-skins2 \
+	--enable-soxr \
+	--enable-spatialaudio \
+	--enable-speex \
+	--enable-srt \
+	--enable-svg \
+	--enable-svgdec \
+	--enable-taglib \
+	--enable-theora \
+	--enable-twolame \
+	--enable-upnp \
+	--enable-vdpau \
+	--enable-vnc \
+	--enable-vorbis \
+	--enable-x264 \
+	--enable-x265 \
+	--enable-zvbi \
+	--with-kde-solid=/usr/share/solid/actions/ \
+	$(NULL)
+
+# Reasons for disabling features:
+# a52: no longer supported upstream
+# aom: dav1d support enabled
+# crystalhd: unusble without firmware (#934242)
+# d3d11va: Windows only
+# dca: no longer supported upstream
+# decklink: not in Debian
+# directx: Windows only
+# dsm: not in Debian
+# dxva2: Windows only
+# fdkaac: in Debian contrib
+# fluidlite: fluidsynth is enabled
+# freerdp: removed from Debian (#888323)
+# goom: not in Debian
+# gst-decode: not needed when having libavcodec
+# libmpeg2: no longer supported upstream
+# libplacebo: is too new
+# live555: non-free code from RFC 3550 (#981439)
+# macosx*: MacOX only
+# mad: orphaned (#1122252)
+# mfx: currently not supported on Linux
+# microdns: functionality already provided by avahi
+# omxil: removed from Debian (#1065623)
+# opencv: developer plugin not required by end users
+# oss: use PulseAudio instead of oss
+# projectm: broken
+# postproc: removed from ffmpeg 8.0
+# schroedinger: removed from Debian (#845037)
+# sdl-image: SDL 1.2 is deprecated (#1038590)
+# sndio: NMU maintained key package
+# sparkle: MacOS X only
+# telx: incompatible with zvbi
+# vpx: not needed when having libavcodec
+# vsxu: not in Debian
+# wasapi: Windows only
+confflags += \
+	--disable-a52 \
+	--disable-aom \
+	--disable-crystalhd \
+	--disable-d3d11va \
+	--disable-dca \
+	--disable-decklink \
+	--disable-directx \
+	--disable-dsm \
+	--disable-dxva2 \
+	--disable-fdkaac \
+	--disable-fluidlite \
+	--disable-freerdp \
+	--disable-goom \
+	--disable-gst-decode \
+	--disable-libmpeg2 \
+	--disable-libplacebo \
+	--disable-live555 \
+	--disable-macosx \
+	--disable-macosx-avfoundation \
+	--disable-macosx-qtkit \
+	--disable-mad \
+	--disable-mfx \
+	--disable-microdns \
+	--disable-omxil \
+	--disable-opencv \
+	--disable-oss \
+	--disable-postproc \
+	--disable-projectm \
+	--disable-schroedinger \
+	--disable-sdl-image \
+	--disable-sndio \
+	--disable-sparkle \
+	--disable-telx \
+	--disable-vpx \
+	--disable-vsxu \
+	--disable-wasapi \
+	$(NULL)
+
+# Linux specific flags
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+confflags += \
+	--enable-alsa \
+	--enable-dc1394 \
+	--enable-dv1394 \
+	--enable-linsys \
+	--enable-nfs \
+	--enable-udev \
+	--enable-v4l2 \
+	--enable-wayland \
+	$(NULL)
+else
+# V4L2 is disabled on Hurd due to a build failure.
+confflags += \
+	--disable-alsa \
+	--disable-dc1394 \
+	--disable-dv1394 \
+	--disable-linsys \
+	--disable-nfs \
+	--disable-udev \
+	--disable-v4l2 \
+	--disable-wayland \
+	$(NULL)
+removeplugins += \
+	alsa \
+	dc1394 \
+	dtv \
+	dv1394 \
+	dvb \
+	fb \
+	linsys \
+	nfs \
+	systemd \
+	udev \
+	v4l2 \
+	wayland \
+	$(NULL)
+endif
+
+# Linux specific flags (disabled on Hurd)
+ifeq (,$(filter-out linux,$(DEB_HOST_ARCH_OS)))
+confflags += \
+	--enable-libva \
+	--enable-vcd \
+	--enable-smbclient \
+	$(NULL)
+else
+confflags += \
+	--disable-libva \
+	--disable-vcd \
+	--disable-smbclient \
+	$(NULL)
+removeplugins += \
+	cdda \
+	libva \
+	smbclient \
+	vcd \
+	$(NULL)
+endif
+
+ifneq (,$(filter noopt,$(DEB_BUILD_OPTIONS)))
+confflags += \
+	--disable-optimizations \
+	--disable-mmx \
+	--disable-sse \
+	--disable-altivec \
+	--disable-neon \
+	$(NULL)
+removeplugins += mmx sse2 altivec neon
+else
+# amd64 and i386 specific optimizations
+ifeq (,$(filter-out amd64 i386,$(DEB_HOST_ARCH_CPU)))
+confflags += --enable-mmx --enable-sse
+else
+confflags += --disable-mmx --disable-sse
+removeplugins += mmx sse2
+endif
+
+# ARM specific optimizations
+ifeq (,$(filter-out armhf,$(DEB_HOST_ARCH_CPU)))
+confflags += --enable-neon
+else
+confflags += --disable-neon
+removeplugins += neon
+endif
+
+# PowerPC specific optimizations
+# AltiVec is currently disabled on powerpc and ppc64
+ifeq (,$(filter-out ppc64el,$(DEB_HOST_ARCH_CPU)))
+confflags += --enable-altivec
+else
+confflags += --disable-altivec
+removeplugins += altivec
+endif
+
+# PowerPCSPE specific optimizations
+ifeq (,$(filter-out powerpcspe,$(DEB_HOST_ARCH)))
+DEB_CFLAGS_MAINT_APPEND += -mtune=8548
+DEB_CXXFLAGS_MAINT_APPEND += -mtune=8548
+endif
+endif
+
+export DEB_BUILD_MAINT_OPTIONS
+export DEB_CFLAGS_MAINT_APPEND
+export DEB_CXXFLAGS_MAINT_APPEND
+export removeplugins
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- $(confflags)
+
+override_dh_auto_test:
+ifeq ($(DEB_BUILD_GNU_TYPE),$(DEB_HOST_GNU_TYPE))
+	./vlc -vvv --ignore-config --no-plugins-cache --list --no-color
+endif
+
+execute_before_dh_install:
+	# Remove plugin cache
+	find debian/tmp/usr/lib -name plugins.dat -delete
+	# Clean up libtool la files
+	find debian/tmp -name '*.la' -delete
+	# Remove useless stuff
+	ln -sf /usr/share/fonts/truetype/freefont/FreeSans.ttf debian/tmp/usr/share/vlc/skins2/fonts/FreeSans.ttf
+	ln -sf /usr/share/fonts/truetype/freefont/FreeMonoBold.ttf debian/tmp/usr/share/vlc/skins2/fonts/FreeSansBold.ttf
+	# Remove additional license files
+	find debian/tmp -name LICENSE -delete
+	# Remove examples installed in -dev packages
+	rm -rf debian/tmp/usr/share/doc/vlc/libvlc
+
+execute_after_dh_install:
+ifeq (Ubuntu,$(DEB_VENDOR))
+	dh_install -pvlc-bin debian/source_vlc.py usr/share/apport/package-hooks/
+endif
+	# Create empty directory for plugins.dat
+	mkdir -p debian/libvlc-bin/usr/lib/${DEB_HOST_MULTIARCH}/vlc/plugins
+
+override_dh_installchangelogs:
+	dh_installchangelogs NEWS
+
+override_dh_makeshlibs:
+	dh_makeshlibs -Xlibvlc_vdpau -Xlibvlc_pulse -Xlibvlc_xcb_events
+
+debian/shlibs.local:
+	echo "libvlc 5 libvlc5 (>= $(DEB_VERSION_UPSTREAM))" > debian/shlibs.local
+	echo "libvlccore 9 libvlccore9 (>= $(DEB_VERSION_UPSTREAM))" >> debian/shlibs.local
+
+execute_before_dh_shlibdeps: debian/shlibs.local
+
+override_dh_bugfiles:
+	dh_bugfiles -A
+
+execute_before_dh_installdeb-arch:
+	sed 's/#DEB_HOST_MULTIARCH#/${DEB_HOST_MULTIARCH}/g' \
+		debian/libvlc-bin.postinst.in > debian/libvlc-bin.postinst
+	sed 's/#DEB_HOST_MULTIARCH#/${DEB_HOST_MULTIARCH}/g' \
+		debian/libvlc-bin.prerm.in > debian/libvlc-bin.prerm
+	echo 'interest-noawait /usr/lib/${DEB_HOST_MULTIARCH}/vlc/plugins' > debian/libvlc-bin.triggers
+
+override_dh_gencontrol-arch:
+	sed -n 's/^# define MODULE_SYMBOL \([0-9][_0-9a-z]*\)/-Vvlc:PluginABI=vlc-plugin-abi-\1/p' \
+		include/vlc_plugin.h | tr _ - | xargs dh_gencontrol -a --

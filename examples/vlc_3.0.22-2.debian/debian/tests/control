@@ -1,0 +1,22 @@
+Tests: vlc-bin
+Depends: vlc-bin
+Restrictions: allow-stderr
+
+Tests: vlc
+Depends: vlc
+Restrictions: allow-stderr
+
+Tests: vlc-all
+Depends:
+ vlc,
+ vlc-plugin-access-extra,
+ vlc-plugin-fluidsynth,
+ vlc-plugin-jack,
+ vlc-plugin-notify,
+ vlc-plugin-svg,
+ vlc-plugin-samba,
+ vlc-plugin-skins2,
+ vlc-plugin-video-splitter,
+ vlc-plugin-visualization,
+ gdb
+Restrictions: allow-stderr

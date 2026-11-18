@@ -1,0 +1,5 @@
+Version: 5
+
+Source: https://download.videolan.org/pub/vlc/@ANY_VERSION@/
+Matching-Pattern: @PACKAGE@@ANY_VERSION@@ARCHIVE_EXT@
+Pgp-Sig-Url-Mangle: s/$/.asc/
