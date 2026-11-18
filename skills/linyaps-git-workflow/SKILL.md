@@ -49,6 +49,7 @@ Git 仓库克隆 + 推送权限验证。
 1. 检查 `projects_repo` 是否为空 → 空则返回 `status: "blocked"`，记录 `git_repo_not_configured`
 2. 若 `projects_root` 为空 → 设定 `projects_root=./projects`
 3. 执行 `git clone <projects_repo> <projects_root> 2>&1` → 失败则返回 `status: "blocked"`，记录 `git_clone_failed`
+   - 若 `projects_root` 已存在且为 git 仓库，改调用 `sync_upstream` 同步而非重新 clone；失败返回 `status: "blocked"`，记录 `git_sync_failed`
 4. 切换到 `projects_root`，执行 `git push --dry-run 2>&1` → 失败则返回 `status: "blocked"`，记录 `git_permission_denied`
 5. 全部通过 → 返回 `status: "ready"`，记录 `git_ready`
 
@@ -81,17 +82,21 @@ Git 仓库克隆 + 推送权限验证。
 **执行逻辑**：
 1. **切换目录**：切换到 `projects_root`
 2. **清理构建缓存**：对每个 `CI_ll_*` 工程目录调用 `scripts/clean_project_cache.sh <proj_dir>`（清理 `linglong/`、`bins/`、`reports/`、`build_cache/`、`*.layer`、`*.uab`、下载的原始套件文件等），只保留工程最小必要文件（`linglong.yaml`、`config/`）
-3. **`git add .`**
-4. **pre-commit 守卫**：调用 `scripts/pre-commit-guard.sh <projects_root>`，命中缓存模式（`*.layer`、`*.uab`、`linglong/`、`bins/`、`reports/`、`build_cache/`、`.linyaps-locks/`）即退出码 1 → **阻断提交**，返回 `committed:false, blocked:pre_commit_guard`
-5. **`git diff --cached --name-only`** 列出暂存文件
-6. **动态生成 commit message**：
+3. **与上游同步（sync_upstream）**：`git fetch origin` → 若本地落后远程，则 `git stash push -u`（含未跟踪文件）→ `git rebase --autostash` → `git stash pop`，保证本地与上游保持一致后再提交
+   - rebase 冲突 → 中止 rebase，返回 `blocked:rebase_conflict`，**不 push**且本地改动保留在 stash
+   - stash pop 冲突 → 返回 `blocked:stash_conflict`（改动保留工作区，交人工处理），**不 push**
+   - 本地已最新或 fetch 失败 → 跳过同步，继续流程
+4. **`git add .`**
+5. **pre-commit 守卫**：调用 `scripts/pre-commit-guard.sh <projects_root>`，命中缓存模式（`*.layer`、`*.uab`、`linglong/`、`bins/`、`reports/`、`build_cache/`、`.linyaps-locks/`）即退出码 1 → **阻断提交**，返回 `committed:false, blocked:pre_commit_guard`
+6. **`git diff --cached --name-only`** 列出暂存文件
+7. **动态生成 commit message**：
    - 仅新增包 → `feat: add debian-rules analysis for <package_id>`
    - 仅修改包 → `fix: update debian-rules analysis for <package_id>`
    - 多个包 → `feat: add/update multiple packages`
    - 无 CI_ll_ 变更 → `chore: update analysis scripts`
-7. **`git commit`**：若无变更，记录已存在，不中断
-8. **`git push`**：失败则记录 `git_push_failed`
-9. **记录结果**到 `data_dir`：`git_commit_success, <commit_sha>` 或 `git_push_failed, <error>`
+8. **`git commit`**：若无变更，记录已存在，不中断
+9. **`git push`**：失败则记录 `git_push_failed`
+10. **记录结果**到 `data_dir`：`git_commit_success, <commit_sha>` 或 `git_push_failed, <error>`
 
 ## 提交前缓存清理
 
@@ -153,8 +158,9 @@ Git 仓库克隆 + 推送权限验证。
 
 1. **仅 debian-rules-to-linyaps agent 调用**
 2. **与 agent_config_path 指向的 agent-config.json 的 global.projects_repo 绑定**
-3. push 失败视为阻塞性错误，与初始化失败同等处理
-4. **提交内容限制（强制）**：构建缓存与构建产物（含但不限于 `linglong/`、
+3. **操作 git 仓库前必须先与上游同步**：`commit_and_push` 在 `git add` 前、`init_repo` 对已存在克隆均须先 `fetch` 并在本地落后时执行 `stash -u + rebase --autostash + stash pop`；rebase/stash 冲突返回阻塞状态，禁止强行 push
+4. push 失败视为阻塞性错误，与初始化失败同等处理
+5. **提交内容限制（强制）**：构建缓存与构建产物（含但不限于 `linglong/`、
    `bins/`、`reports/`、`build_cache/`、`file_res/`、`*.layer`、`*.uab`，以及下载的
    原始套件 `*.deb`/`*.tar.*`/`*.tgz`/`*.zip` 等）一律**禁止** `git add` 加入提交。
    提交前必须先执行 `clean_project_cache.sh`，再以 `pre-commit-guard.sh` 确认暂存区

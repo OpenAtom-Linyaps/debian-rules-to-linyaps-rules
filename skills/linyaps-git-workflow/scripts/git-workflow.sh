@@ -54,6 +54,50 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+sync_upstream() {
+  # 提交推送前与上游同步：fetch → 落后则 stash -u + rebase + stash pop
+  # 返回 0 表示已同步/无需同步；返回非 0 表示冲突中断（已输出 blocked JSON）
+  echo "== 与上游同步（stash -u + rebase）=="
+  if ! git fetch origin 2>&1; then
+    echo "[WARN] git fetch 失败，跳过同步" >&2
+    return 0
+  fi
+  local branch behind remote
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  remote="origin/$branch"
+  git rev-parse --verify "$remote" >/dev/null 2>&1 || {
+    echo "[WARN] 无远程分支 $remote，跳过同步" >&2
+    return 0
+  }
+  behind=$(git rev-list --count "HEAD..$remote" 2>/dev/null || echo 0)
+  if [[ "$behind" == "0" ]]; then
+    return 0
+  fi
+  echo "本地落后上游 $behind 个提交，开始安全同步"
+
+  if git stash push -u -m "linyaps-prepull" >/dev/null 2>&1; then
+    # stash 存在：rebase 后恢复；rebase 冲突则中止并保留 stash
+    if ! git rebase --autostash "$remote" 2>&1; then
+      git rebase --abort 2>/dev/null || true
+      echo '{"committed":false,"commit_sha":"","packages":[],"blocked":"rebase_conflict"}' >&2
+      return 1
+    fi
+    if ! git stash pop 2>&1; then
+      echo "[WARN] stash 恢复冲突，已保留改动，请人工处理，阻断本次提交" >&2
+      echo '{"committed":false,"commit_sha":"","packages":[],"blocked":"stash_conflict"}' >&2
+      return 1
+    fi
+  else
+    # 无本地改动：直接 rebase
+    if ! git rebase --autostash "$remote" 2>&1; then
+      git rebase --abort 2>/dev/null || true
+      echo '{"committed":false,"commit_sha":"","packages":[],"blocked":"rebase_conflict"}' >&2
+      return 1
+    fi
+  fi
+  return 0
+}
+
 output_json() {
   echo "$1"
 }
@@ -68,11 +112,18 @@ if [[ "$ACTION" == "init_repo" ]]; then
     PROJECTS_ROOT="./projects"
   fi
 
-  # git clone
-  CLONE_OUTPUT=$(git clone "$PROJECTS_REPO" "$PROJECTS_ROOT" 2>&1) || {
-    echo "{\"status\":\"blocked\",\"error\":\"git_clone_failed: ${CLONE_OUTPUT}\"}"
-    exit 0
-  }
+  # git clone；若已存在且为 git 仓库，则改为同步而非重建
+  if [[ -d "$PROJECTS_ROOT/.git" ]]; then
+    CLONE_OUTPUT=$(cd "$PROJECTS_ROOT" && sync_upstream 2>&1) || {
+      echo "{\"status\":\"blocked\",\"error\":\"git_sync_failed: ${CLONE_OUTPUT}\"}"
+      exit 0
+    }
+  else
+    CLONE_OUTPUT=$(git clone "$PROJECTS_REPO" "$PROJECTS_ROOT" 2>&1) || {
+      echo "{\"status\":\"blocked\",\"error\":\"git_clone_failed: ${CLONE_OUTPUT}\"}"
+      exit 0
+    }
+  fi
 
   # 验证推送权限
   PUSH_OUTPUT=$(cd "$PROJECTS_ROOT" && git push --dry-run 2>&1) || {
@@ -101,6 +152,11 @@ elif [[ "$ACTION" == "commit_and_push" ]]; then
   while IFS= read -r -d '' proj; do
     clean_project_cache "$proj"
   done < <(find "$PROJECTS_ROOT" -maxdepth 1 -type d -name 'CI_ll_*' -print0 2>/dev/null)
+
+  # 推送前先与上游同步（stash -u + rebase），避免本地落后导致 push 被拒
+  if ! sync_upstream; then
+    exit 0
+  fi
 
   # 暂存变更
   git add . 2>/dev/null || true
