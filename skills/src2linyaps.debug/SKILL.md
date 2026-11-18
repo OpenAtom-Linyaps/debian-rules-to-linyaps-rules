@@ -55,7 +55,7 @@ user-invocable: true
 | `src2linyaps.debian.test-deps` | `skills/src2linyaps.debian.test-deps/` | 校验 `Build-Depends` 可用性（修复 buildext.build_depends 前探测） |
 | `src2linyaps.debian.analyze-control` | `skills/src2linyaps.debian.analyze-control/` | 解析 debian/control，合并 buildDepends/runtimeDepends（修复 `buildext` 依赖段） |
 | `src2linyaps.debian.analyze-rules` | `skills/src2linyaps.debian.analyze-rules/` | 分析 debian/rules → build_section、build_tool、resources（修复 build 规则错误，比对产物） |
-| `src2linyaps.debian.build-res-generate` | `skills/src2linyaps.debian.build-res-generate/` | 生成/重新生成 `linglong.yaml` + 校验（`generate-linglong-yaml.py` / `validate-linglong-yaml.py`） |
+| `src2linyaps.debian.build-res-generate` | `skills/src2linyaps.debian.build-res-generate/` | 生成/重新生成 `linglong.yaml` + 校验；运行库丢失（非 apt 可补齐）时 agent 按其 SKILL.md 用 `--custom-deb-urls` 注入 deb 提取（`generate-linglong-yaml.py` / `validate-linglong-yaml.py` / `download_custom_debs.sh`） |
 | `src2linyaps.source.detect-tool` | `skills/src2linyaps.source.detect-tool/` | 检测构建工具类型（cmake/meson/make/autotools），修复 build 段工具错误 |
 | `src2linyaps.source.analyze-args` | `skills/src2linyaps.source.analyze-args/` | 提取编译参数与默认值（修复 configure/cmake 参数） |
 | `linyaps-git-workflow` | `skills/linyaps-git-workflow/` | Git 提交/推送修复后的工程（阶段四条件推送） |
@@ -84,6 +84,7 @@ ll-builder extract <layer_path> <workdir>
    - **command 指向的可执行文件缺失**
    - **common res 缺失**：`share/applications/*.desktop`、`share/icons/hicolor/**`、`share/metainfo|appdata`、`share/locale`
    - **buildext 依赖缺失/多余**
+   - **运行库丢失（非 apt 可补齐）**：`<workdir>/files/lib` 下 `.so` 文件 `ldd` 检测有 `not found`，且缺失库不在 apt 仓库（`apt-cache show <libname>` 无结果）→ 需通知 agent 调用 `build-res-generate` 通过自定义 deb URL 下载补齐
    - **yaml 格式 / base / runtime 错误**
 3. `debian_path` 存在时，用 `analyze-rules.py` 辅助比对 debian 产物与 `<workdir>/files/`
 4. 输出结构化诊断清单（含问题类型 + 定位 + 依据）
@@ -96,6 +97,7 @@ ll-builder extract <layer_path> <workdir>
 | build 参数/configure 错误 | `src2linyaps.source.analyze-args` + `src2linyaps.debian.analyze-rules` | 提取/重生成 build 段 |
 | 重新生成 linglong.yaml | `src2linyaps.debian.build-res-generate` | `generate-linglong-yaml.py` |
 | buildext 依赖问题 | `src2linyaps.debian.analyze-control` + `src2linyaps.debian.test-deps` | 修正 buildDepends/runtimeDepends |
+| 运行库丢失（非 apt 可补齐） | `src2linyaps.debian.build-res-generate` | 通知 agent 调用本技能，按其 SKILL.md 使用 `--custom-deb-urls` 重新生成 `linglong.yaml`，注入 deb 提取命令补齐缺失运行库 |
 | common res 补齐 | 直接编辑 `files_res/` + `$PREFIX` 对应路径（遵循规范） | 本 skill 落盘 |
 | 修复后二次校验 | `src2linyaps.debian.build-res-generate` | `validate-linglong-yaml.py`（见下） |
 
@@ -342,6 +344,7 @@ fi
 - 超时 30 秒（应用启动验证，非完整功能测试）。
 - 退出码 0 或 124 = 通过；其他非零退出码 = 失败。
 - 构建验证失败时跳过运行验证（`run_verify="skipped"`）。
+- 运行验证失败且错误含 `error while loading shared libraries` / `cannot open shared object file` → 回退阶段二，按「运行库丢失（非 apt 可补齐）」重新诊断，阶段三路由到 `build-res-generate`（`--custom-deb-urls`）修复后重新构建验证
 
 #### 4.3 条件 Git 推送
 

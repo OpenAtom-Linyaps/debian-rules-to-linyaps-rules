@@ -39,6 +39,11 @@ CLANG_BUILD_DEPS = ["clang", "lld", "ccache"]
 CLANG_RUNTIME_DEPS = ["libomp5"]
 # 补丁应用（patch -p1）在容器内执行，需追加 patch 构建依赖
 PATCH_BUILD_DEPS = ["patch"]
+# 自定义 deb 解压脚本名（随 linglong.yaml 同级复制到输出目录，映射到容器 /project/linglong/）
+CUSTOM_DEB_SCRIPT = "download_custom_debs.sh"
+CUSTOM_DEB_CONF = "custom_debs_urls.conf"
+# 容器内脚本路径（linglong.yaml 同级目录在容器内挂载到 /project/linglong/）
+CUSTOM_DEB_SCRIPT_CONTAINER = "/project/linglong/download_custom_debs.sh"
 
 SPDX_HEADER = """# SPDX-FileCopyrightText: 2023 UnionTech Software Technology Co., Ltd.
 #
@@ -272,6 +277,7 @@ def build_yaml(
     command,
     with_deps,
     use_clang=False,
+    custom_debs=False,
     reference=None,
 ):
     description = data.get("pkgDescription", "") or ""
@@ -305,6 +311,10 @@ def build_yaml(
             if dep not in build_depends:
                 build_depends.append(dep)
         with_deps = True
+    # 自定义 deb 解压（容器内 /project/linglong/download_custom_debs.sh）
+    # 在 touch/chmod 之前执行：deb 内容需在 chmod -R 755 之前落入 ${PREFIX}
+    if custom_debs:
+        build_section += f'bash {CUSTOM_DEB_SCRIPT_CONTAINER} "${{PREFIX}}"\n'
     build_section += "touch ${PREFIX}/.linyaps_genius\n"
     build_section += "chmod -R 755 ${PREFIX}\n"
 
@@ -490,12 +500,22 @@ def main():
         action="store_true",
         help="不注入 clang 默认编译（用户声明 gcc/不用 clang 时由主 agent 传入）",
     )
+    parser.add_argument(
+        "--custom-deb-urls",
+        default="",
+        help="自定义 deb URL 配置文件路径（custom_debs_urls.conf），"
+        "build 段会注入调用 download_custom_debs.sh 的命令",
+    )
     args = parser.parse_args()
 
     control_info = read_yaml(args.control_info)
 
     use_clang = (args.build_tool in SOURCE_BUILD_TOOLS) and not args.no_clang
 
+    custom_deb_urls_file = args.custom_deb_urls
+    has_custom_debs = bool(custom_deb_urls_file) and os.path.isfile(
+        custom_deb_urls_file
+    )
     defaults = {}
     if args.defaults and os.path.isfile(args.defaults):
         defaults = read_json(args.defaults)
@@ -557,6 +577,7 @@ def main():
         command,
         with_deps,
         use_clang,
+        custom_debs=has_custom_debs,
         reference=reference,
     )
 
@@ -576,6 +597,23 @@ def main():
         f.write(formatted)
 
     print(f"linglong.yaml generated: {args.output}")
+
+    # 复制自定义 deb 脚本和配置文件到输出目录（linglong.yaml 同级）
+    # 映射到容器 /project/linglong/，build 段通过绝对路径调用
+    if has_custom_debs:
+        import shutil
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        src_script = os.path.join(script_dir, CUSTOM_DEB_SCRIPT)
+        out_dir = os.path.dirname(args.output) or "."
+        dst_script = os.path.join(out_dir, CUSTOM_DEB_SCRIPT)
+        dst_conf = os.path.join(out_dir, CUSTOM_DEB_CONF)
+        shutil.copy2(src_script, dst_script)
+        # conf 可能已在输出目录（用户放在 linglong.yaml 同级），同文件跳过
+        if os.path.abspath(custom_deb_urls_file) != os.path.abspath(dst_conf):
+            shutil.copy2(custom_deb_urls_file, dst_conf)
+        print(f"custom deb script copied: {dst_script}")
+        print(f"custom deb urls conf copied: {dst_conf}")
 
 
 if __name__ == "__main__":

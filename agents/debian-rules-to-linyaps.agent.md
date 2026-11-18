@@ -113,11 +113,15 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-y
   --build-args '<build_args_json>' \
   --extra-args '<extra_args_string>' \
   --package-version <baseline> \
-  --defaults skills/config/linglong-defaults.json \
+  --custom-deb-urls <custom_debs_urls.conf> \
   --output output/linglong.yaml
 ```
 
 - **输出**：`output/linglong.yaml`（完整的玲珑构建配方）。
+- **`--custom-deb-urls`**（可选）：当用户提供自定义 deb URL 配置文件时传入。
+  配置文件格式见 `reference/custom_debs_urls_conf_format.md`。
+  传入后 build 段注入 `bash /project/linglong/download_custom_debs.sh "${PREFIX}"`，
+  脚本和配置文件复制到输出目录。未提供时不注入。
 
 ### 路径 B: fallback 源码分析
 
