@@ -62,7 +62,7 @@ sync_upstream() {
     echo "[WARN] git fetch 失败，跳过同步" >&2
     return 0
   fi
-  local branch behind remote
+  local branch remote behind
   branch=$(git rev-parse --abbrev-ref HEAD)
   remote="origin/$branch"
   git rev-parse --verify "$remote" >/dev/null 2>&1 || {
@@ -75,23 +75,28 @@ sync_upstream() {
   fi
   echo "本地落后上游 $behind 个提交，开始安全同步"
 
-  if git stash push -u -m "linyaps-prepull" >/dev/null 2>&1; then
-    # stash 存在：rebase 后恢复；rebase 冲突则中止并保留 stash
-    if ! git rebase --autostash "$remote" 2>&1; then
-      git rebase --abort 2>/dev/null || true
-      echo '{"committed":false,"commit_sha":"","packages":[],"blocked":"rebase_conflict"}' >&2
+  # 仅在有本地改动（含未跟踪）时才 stash，避免空 stash 造成的误报
+  local stashed=0
+  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+    if ! git stash push -u -m "linyaps-prepull" 2>&1; then
+      echo '{"committed":false,"commit_sha":"","packages":[],"blocked":"stash_failed"}' >&2
       return 1
     fi
+    stashed=1
+  fi
+
+  # 手动 stash 后工作区已干净，故不用 --autostash：其内部 stash/pop 会与手动 stash 冲突
+  if ! git rebase "$remote" 2>&1; then
+    git rebase --abort 2>/dev/null || true
+    echo '{"committed":false,"commit_sha":"","packages":[],"blocked":"rebase_conflict"}' >&2
+    return 1
+  fi
+
+  # 仅当确已 stash 且 stash 仍存在时才恢复，避免"空 stash pop"误报
+  if [[ "$stashed" == "1" ]] && git rev-parse --verify refs/stash >/dev/null 2>&1; then
     if ! git stash pop 2>&1; then
       echo "[WARN] stash 恢复冲突，已保留改动，请人工处理，阻断本次提交" >&2
       echo '{"committed":false,"commit_sha":"","packages":[],"blocked":"stash_conflict"}' >&2
-      return 1
-    fi
-  else
-    # 无本地改动：直接 rebase
-    if ! git rebase --autostash "$remote" 2>&1; then
-      git rebase --abort 2>/dev/null || true
-      echo '{"committed":false,"commit_sha":"","packages":[],"blocked":"rebase_conflict"}' >&2
       return 1
     fi
   fi
