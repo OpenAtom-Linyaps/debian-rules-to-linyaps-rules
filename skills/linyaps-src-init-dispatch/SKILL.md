@@ -60,9 +60,9 @@ Git 提交成功后，向 `linyaps-packer-*` 智能体发起打包指派。
    - `busy` → 记录警告"目标繁忙，仍发起指派（由平台排队）"，**不阻断**
    - 脚本报错 → 记录警告"无法查询状态，直接发起指派"，**不阻断**
 3. **选择最佳节点**：优先 `idle`，全部 `busy` 则随机选一个
-4. **指派执行**：查询当前 issue ID，通过 `multica issue comment add` 发送 mention 评论：
+4. **指派执行**：查询当前 issue ID（`multica issue list --output json` 的 `id`，精确 UUID），通过 `multica issue comment add` 发送 `@mention` 评论（UUID 绑定格式），再通过 `multica issue assign <issue-uuid> --to-id <agent-uuid>` 将 issue 指派给目标 agent：
    ```
-   @<packer_name> 请按照 <workflow_type> 流程执行 <project_dir> 打包任务（<arch>）
+   [@<packer_name>](mention://agent/<packer_uuid>) 请按照 <workflow_type> 流程执行 <project_dir> 打包任务（<arch>）
    ```
 5. **记录指派日志**：写入 `data_dir/assignment.log`：
    ```
@@ -139,6 +139,10 @@ Git 提交成功后，向 `linyaps-packer-*` 智能体发起打包指派。
 | `linyaps-packer-1` | `linyaps_packaging` | 每个任务 Git 提交成功后 |
 | `linyaps-packer-2` | `linyaps_packaging` | 每个任务 Git 提交成功后（热备） |
 
+> **packer 本地检出目录**：packer 侧构建时读取**自己的** `agent-config.json` 中
+> `global.pack_repo_dir` 作为本地检出目录。`dispatch.sh` 不改，指派消息不携带该路径
+> （消息仅携带 `project_dir`/`arch`/`workflow_type`）。
+
 ### `assignment.default_strategy`
 
 | 场景 | handler | 说明 |
@@ -152,3 +156,15 @@ Git 提交成功后，向 `linyaps-packer-*` 智能体发起打包指派。
 1. **仅 debian-rules-to-linyaps agent 调用**：此 skill 不应被其他 agent 使用
 2. **与 agent_config_path 指向的 agent-config.json 的 assignment 区段绑定**：目标 agent 列表从配置读取
 3. **`check_endpoint` 冷备未上线**：当前使用 `check-agent-status.sh` 脚本作为热备方案；后续上线后改由端点查询
+
+## 精确 UUID 约束（重要）
+
+**Issue 62 修复后，issue 与 agent 双端一律以精确 UUID 管理，禁止模糊匹配。**
+
+- **issue id**：一律使用 `multica issue list --output json` 的 `id`（UUID，形如 `d3eab8d0-6295-4ee8-916a-1822b4e57aa3`）。**禁止** `issue-\d+` 正则、数字、`identifier`(`LIN-xxxx`) 作为 issue 标识——平台不返回这些文本，正则永不命中。
+- **agent id**：一律使用 `multica agent list --output json` 的 `id`（UUID）。指派用 `multica issue assign <issue-uuid> --to-id <agent-uuid>`。
+- **@mention**：使用 UUID 绑定格式 `[@<name>](mention://agent/<uuid>)`，不要用纯 `@<name>`。
+- **校验**：取得的 ID 必须通过 UUID 正则（小写十六进制）校验；非 UUID 一律跳过并记录判别原因（`cli_unavailable` / `issue_id_not_found` / `agent_uuid_missing` / `invalid_uuid`）。
+- **输出**：`output_json` 应包含 `target_agent_uuid` 与 `blocked_reason`，异常时通过 `blocked_reason` 判别失败原因。
+
+实现参考：`scripts/dispatch.sh` 的 `get_issue_id()`、`is_uuid()` 与 `assign_packer` 的 `--to-id` 指派逻辑。

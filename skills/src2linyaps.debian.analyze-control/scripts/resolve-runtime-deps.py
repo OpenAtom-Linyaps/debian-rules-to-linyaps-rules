@@ -26,25 +26,44 @@ import subprocess
 import yaml
 
 
+MAX_RECURSE_DEPTH = 3
+
+# 包名后缀黑名单 — 这些包不应进入运行时依赖
+RUNTIME_EXCLUDED_SUFFIXES = ('-dev', '-dbgsym', '-dbg', '-doc', '-dev-bin', '-tools')
+
+
 def strip_version(pkg: str) -> str:
     """从带版本约束和构建 profile 的依赖字符串中提取裸包名。
 
     'cmake (>= 3.16~)'   → 'cmake'
     'xauth <!nocheck>'   → 'xauth'
     'libc6:amd64'        → 'libc6'
+    'libasound2-dev [linux-any]' → 'libasound2-dev'
     """
     pkg = pkg.strip()
-    # 移除版本约束 (>= x.y~)
     pkg = re.sub(r'\s*\([^)]*\)', '', pkg).strip()
-    # 移除构建 profile <!...>
     pkg = re.sub(r'\s*<![^>]+>', '', pkg).strip()
-    # 移除架构限定 :amd64
+    pkg = re.sub(r'\s*\[[^\]]*\]', '', pkg).strip()
     pkg = re.sub(r':\w+$', '', pkg).strip()
     return pkg
 
 
-def query_apt_depends(pkg: str) -> list:
-    """对单个包调用 apt-cache depends，返回 Depends + Recommends 列表。"""
+def is_runtime_package(pkg: str) -> bool:
+    """判断包名是否属于不应进入 runtimeDepends 的类别。
+
+    过滤规则：以 -dev / -dbgsym / -dbg / -doc / -dev-bin / -tools 结尾的包名。
+    注意 RUNTIME_EXCLUDED_SUFFIXES 已按长度降序排列，保证 -dev-bin 等
+    长后缀优先匹配（避免 -dev-bin 命中 -dev）。
+    """
+    return pkg.endswith(RUNTIME_EXCLUDED_SUFFIXES)
+
+
+def query_apt_depends(pkg: str, include_recommends: bool = True) -> list:
+    """对单个包调用 apt-cache depends，返回 Depends 列表。
+
+    include_recommends=True 时同时提取 Recommends（第一层用），
+    include_recommends=False 时只提取 Depends（递归层用）。
+    """
     try:
         result = subprocess.run(
             ['apt-cache', 'depends', pkg],
@@ -60,7 +79,6 @@ def query_apt_depends(pkg: str) -> list:
         return []
 
     if result.returncode != 0:
-        # apt-cache 对不存在的包返回非零
         if 'Unable to locate package' in result.stderr or \
            '没有发现匹配' in result.stderr:
             print(f"WARNING: 未找到包 {pkg}，跳过", file=sys.stderr)
@@ -68,27 +86,64 @@ def query_apt_depends(pkg: str) -> list:
             print(f"WARNING: 查询 {pkg} 失败: {result.stderr.strip()}", file=sys.stderr)
         return []
 
+    dep_types = ['Depends']
+    if include_recommends:
+        dep_types.append('Recommends')
+    pattern = r'^  (' + '|'.join(dep_types) + r'):\s+(.+)'
+
     deps = []
     for line in result.stdout.splitlines():
         line_stripped = line.strip()
-        # 跳过空行、虚拟包 (<...>)、缩进行（替代包）
         if not line_stripped or line_stripped.startswith('<') or line_stripped.endswith('>'):
             continue
         if not line.startswith('  '):
             continue
-        # 只匹配非缩进的两空格行: "  Depends: <pkg>"
-        m = re.match(r'^  (Depends|Recommends):\s+(.+)', line)
+        m = re.match(pattern, line)
         if m:
             dep_pkg = m.group(2).strip()
-            # 跳过虚拟包（行尾可能是 <pkg> 格式）
             if dep_pkg.startswith('<'):
                 continue
             deps.append(dep_pkg)
     return deps
 
 
+def _resolve_recursive(
+    pkg: str,
+    seen: set,
+    runtime_deps: list,
+    runtime_deps_set: set,
+    blacklist: set,
+    depth: int,
+) -> None:
+    """递归解析单包的 Depends（仅 Depends，不含 Recommends）。
+
+    递归终止条件：
+    - depth > MAX_RECURSE_DEPTH
+    - pkg 已在 seen 中（已查询过）
+    """
+    if depth > MAX_RECURSE_DEPTH or pkg in seen:
+        return
+    seen.add(pkg)
+
+    sub_deps = query_apt_depends(pkg, include_recommends=False)
+    for d_raw in sub_deps:
+        d = d_raw.strip()
+        if not d or d in blacklist or is_runtime_package(d):
+            continue
+        if d not in runtime_deps_set:
+            runtime_deps.append(d)
+            runtime_deps_set.add(d)
+        _resolve_recursive(d, seen, runtime_deps, runtime_deps_set, blacklist, depth + 1)
+
+
 def resolve_runtime_depends(build_depends: list, blacklist: set = None) -> list:
-    """解析所有 Build-Depends 包的运行时依赖，去重后返回。
+    """解析所有 Build-Depends 包的运行时依赖，BFS 递归至多 3 层。
+
+    - 第一层：对每个 Build-Depends 包查询 Depends + Recommends
+    - 第 2~3 层：对每个命中包查询 Depends（不含 Recommends）
+    - 过滤 -dev/-dbgsym/-dbg/-doc 包
+    - 黑名单包不进入结果
+    - 全局 seen 缓存避免重复查询
 
     blacklist: 需要从结果中排除的包名集合。
     """
@@ -97,18 +152,23 @@ def resolve_runtime_depends(build_depends: list, blacklist: set = None) -> list:
 
     seen = set()
     runtime_deps = []
+    runtime_deps_set = set()
 
     for dep in build_depends:
         pkg = strip_version(dep)
         if not pkg or pkg in seen:
             continue
-        seen.add(pkg)  # 避免重复查询相同的包
+        seen.add(pkg)
 
-        deps = query_apt_depends(pkg)
-        for d in deps:
-            if d not in seen and d not in blacklist:
-                seen.add(d)
+        first_deps = query_apt_depends(pkg, include_recommends=True)
+        for d_raw in first_deps:
+            d = d_raw.strip()
+            if not d or d in blacklist or is_runtime_package(d):
+                continue
+            if d not in runtime_deps_set:
                 runtime_deps.append(d)
+                runtime_deps_set.add(d)
+            _resolve_recursive(d, seen, runtime_deps, runtime_deps_set, blacklist, depth=1)
 
     return sorted(runtime_deps)
 

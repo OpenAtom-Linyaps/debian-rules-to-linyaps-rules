@@ -1,0 +1,99 @@
+# 常见编译规则参考 — 统一管理必需命令与禁用参数
+#
+# 本文件被 generate-linglong-yaml.py 和 validate-linglong-yaml.py 加载，
+# 用于在生成和校验阶段检查 build 段是否符合该工具类型的规范。
+#
+# 结构说明:
+#   tools.<tool>:
+#     commands[]:   必需命令（缺失时打印 warning，不阻断流程）
+#       patterns[]:  该命令必须包含的关键词（AND 逻辑，全部需出现）
+#       exclude[]:   该命令不能包含的关键词（匹配的命令中任一出现即排除）
+#       one_of[]:    多个备选方案，任一匹配即视为通过（优先级高于 patterns）
+#     forbidden[]:  禁用参数（出现时打印 error，会阻断流程）
+#       patterns[]:  禁用关键词组合（AND 逻辑，全部出现即违规）
+#
+# 命令拆分规则:
+#   1. 合并反斜杠续行 (\\n -> 空格)
+#   2. 按 && / ; / || / \\n 拆分为独立命令
+#   3. 每个命令去除首尾空白后逐一匹配
+
+tools:
+  qmake:
+    commands:
+      - description: "qmake configure with PREFIX"
+        patterns: ["qmake", "PREFIX="]
+      - description: "make build"
+        patterns: ["make"]
+        exclude: ["install", "DESTDIR="]
+      - description: "install with DESTDIR"
+        patterns: ["DESTDIR=", "make install"]
+    forbidden:
+      - description: "DESTDIR in qmake (unexpected usage)"
+        patterns: ["DESTDIR="]
+
+  meson:
+    commands:
+      - description: "meson configure with prefix"
+        patterns: ["meson", "--prefix="]
+      - description: "build (ninja/make)"
+        one_of:
+          - patterns: ["ninja"]
+            exclude: ["install", "DESTDIR="]
+          - patterns: ["make"]
+            exclude: ["install", "DESTDIR="]
+      - description: "install to PREFIX"
+        one_of:
+          - patterns: ["ninja", "install"]
+          - patterns: ["make install"]
+          - patterns: ["meson install"]
+    forbidden:
+      - description: "DESTDIR (causes double path nesting with --prefix)"
+        patterns: ["DESTDIR="]
+
+  cmake:
+    commands:
+      - description: "cmake configure with CMAKE_INSTALL_PREFIX"
+        patterns: ["cmake", "CMAKE_INSTALL_PREFIX="]
+      - description: "build (make/ninja/cmake --build)"
+        one_of:
+          - patterns: ["make"]
+            exclude: ["install"]
+          - patterns: ["ninja"]
+            exclude: ["install", "DESTDIR="]
+          - patterns: ["cmake", "--build"]
+      - description: "install to PREFIX"
+        one_of:
+          - patterns: ["make install"]
+          - patterns: ["ninja", "install"]
+          - patterns: ["cmake", "--install"]
+    forbidden:
+      - description: "DESTDIR (causes double path nesting with -DCMAKE_INSTALL_PREFIX)"
+        patterns: ["DESTDIR="]
+
+  autotools:
+    commands:
+      - description: "./configure with prefix"
+        patterns: ["./configure", "--prefix="]
+      - description: "make build"
+        patterns: ["make"]
+        exclude: ["install", "DESTDIR="]
+      - description: "make install"
+        patterns: ["make install"]
+    forbidden:
+      - description: "DESTDIR (causes double path nesting with --prefix)"
+        patterns: ["DESTDIR="]
+
+  make:
+    commands:
+      - description: "make build"
+        patterns: ["make"]
+        exclude: ["install", "DESTDIR="]
+      - description: "install with DESTDIR"
+        patterns: ["DESTDIR=", "make install"]
+    forbidden: []
+
+  unknown:
+    commands: []
+    forbidden:
+      - description: "DESTDIR (conservative: forbidden for unknown build tool)"
+        patterns: ["DESTDIR="]

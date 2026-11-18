@@ -24,6 +24,9 @@ def parse_control(filepath: str) -> dict:
         'buildDepends': [],
         'buildDependsArch': [],
         'buildDependsIndep': [],
+        'buildDependsAlternatives': [],
+        'buildDependsArchAlternatives': [],
+        'buildDependsIndepAlternatives': [],
         'binaryPackages': [],
     }
 
@@ -31,9 +34,6 @@ def parse_control(filepath: str) -> dict:
     paragraphs = re.split(r'\n\s*\n', content.strip())
 
     source_parsed = False
-    all_build_depends = []
-    all_build_depends_arch = []
-    all_build_depends_indep = []
 
     for para in paragraphs:
         lines = para.strip().split('\n')
@@ -66,11 +66,13 @@ def parse_control(filepath: str) -> dict:
 
             for dep_field in ['Build-Depends', 'Build-Depends-Arch', 'Build-Depends-Indep']:
                 if dep_field in field_values:
-                    deps = parse_depends(field_values[dep_field])
-                    key = 'buildDepends' if dep_field == 'Build-Depends' else (
+                    deps, alts = parse_depends(field_values[dep_field])
+                    base_key = 'buildDepends' if dep_field == 'Build-Depends' else (
                         'buildDependsArch' if dep_field == 'Build-Depends-Arch' else 'buildDependsIndep'
                     )
-                    result[key] = merge_dedup(result[key], deps)
+                    alt_key = base_key + 'Alternatives'
+                    result[base_key] = merge_dedup(result[base_key], deps)
+                    result[alt_key] = merge_dedup_alternatives(result[alt_key], alts)
 
         # Package paragraphs
         if 'Package' in field_values:
@@ -84,25 +86,38 @@ def parse_control(filepath: str) -> dict:
 
             for dep_field in ['Build-Depends', 'Build-Depends-Arch', 'Build-Depends-Indep']:
                 if dep_field in field_values:
-                    deps = parse_depends(field_values[dep_field])
-                    key = 'buildDepends' if dep_field == 'Build-Depends' else (
+                    deps, alts = parse_depends(field_values[dep_field])
+                    base_key = 'buildDepends' if dep_field == 'Build-Depends' else (
                         'buildDependsArch' if dep_field == 'Build-Depends-Arch' else 'buildDependsIndep'
                     )
-                    result[key] = merge_dedup(result[key], deps)
+                    alt_key = base_key + 'Alternatives'
+                    result[base_key] = merge_dedup(result[base_key], deps)
+                    result[alt_key] = merge_dedup_alternatives(result[alt_key], alts)
 
     return result
 
 
-def parse_depends(dep_str: str) -> list:
-    """Parse a Build-Depends field value into a list of dependency strings."""
-    # Remove line continuations and split by commas
-    dep_str = dep_str.replace('\n', ' ').replace('|', ',')
+def parse_depends(dep_str: str) -> tuple:
+    """Parse a Build-Depends field value into (deps, alternatives) tuple.
+
+    Returns:
+        deps: list of individual dependency strings (first option from each or-group)
+        alternatives: list of lists, each inner list is an or-group of alternatives
+    """
+    dep_str = dep_str.replace('\n', ' ')
     deps = []
+    alternatives = []
     for part in dep_str.split(','):
         part = part.strip()
-        if part and not part.startswith('#') and not part.startswith('<') and not part.startswith('['):
+        if not part or part.startswith('#') or part.startswith('<') or part.startswith('['):
+            continue
+        if '|' in part:
+            or_group = [p.strip() for p in part.split('|')]
+            deps.append(or_group[0])
+            alternatives.append(or_group)
+        else:
             deps.append(part)
-    return deps
+    return deps, alternatives
 
 
 def merge_dedup(existing: list, new_items: list) -> list:
@@ -113,6 +128,21 @@ def merge_dedup(existing: list, new_items: list) -> list:
         if item not in seen:
             seen.add(item)
             merged.append(item)
+    return merged
+
+
+def merge_dedup_alternatives(existing: list, new_groups: list) -> list:
+    """Merge alternative groups with deduplication, preserving order.
+
+    Each group is a list of alternative package strings.
+    Dedup is based on the first element (matching buildDepends entry).
+    """
+    seen = set(g[0] if g else '' for g in existing)
+    merged = list(existing)
+    for group in new_groups:
+        if group and group[0] not in seen:
+            seen.add(group[0])
+            merged.append(group)
     return merged
 
 

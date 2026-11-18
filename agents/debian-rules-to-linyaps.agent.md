@@ -7,6 +7,9 @@ tools:
 permission:
   skill: { "*": "allow" }
 skills:
+  - id: src2linyaps.constraints
+    path: skills/src2linyaps.constraints/SKILL.md
+    type: sub
   - id: src2linyaps.debian.test-deps
     path: skills/src2linyaps.debian.test-deps/SKILL.md
     type: sub
@@ -24,6 +27,9 @@ skills:
     type: sub
   - id: src2linyaps.source.analyze-args
     path: skills/src2linyaps.source.analyze-args/SKILL.md
+    type: sub
+  - id: src2linyaps.debug
+    path: skills/src2linyaps.debug/SKILL.md
     type: sub
 ---
 
@@ -108,7 +114,8 @@ skills:
 - 使用 `debian-control-schema.yaml` 中定义的合并策略（`union_dedup`）
 
 ### 运行时依赖过滤约束
-- 使用 `runtime-depends-blacklist.json` 过滤编译器（gcc/clang/llvm 等）和 GPU 驱动（mesa/libgl 等）
+- 使用 `runtime-depends-blacklist.json` 过滤编译器（gcc/clang/llvm 等）和 GPU 驱动（mesa/libgl 等），作为辅助过滤
+- **写入 `depends` 前必须逐包核验 apt 仓库存在性（不存在即剔除，filter-upstream）**；任一运行依赖进入 `buildext.apt.depends` 前都必须真实存在于当前 apt 仓库
 - 过滤后的运行时依赖写入 `runtimeDepends` 字段
 
 ### 构建参数提取约束
@@ -128,63 +135,60 @@ skills:
 - 其他构建工具的构建规则以此类推，所有编译产物安装路径必须基于 `${PREFIX}`
 - 校验阶段通过 `validate-linglong-yaml.py` 自动检查此约束
 
+### DESTDIR 黑名单约束
+- `DESTDIR=<value>` 仅允许出现在 `make` 工程中
+- 对于 `cmake`/`meson`/`autotools`/`unknown` 类型，`DESTDIR=` 与 `--prefix`/`-DCMAKE_INSTALL_PREFIX` 重复指定会导致安装目录错误嵌套（如 `${PREFIX}${PREFIX}`）
+- 生成阶段通过 `generate-linglong-yaml.py --build-tool` 校验，若命中黑名单则阻止生成
+- 校验阶段通过 `validate-linglong-yaml.py --build-tool` 二次检测
+- 黑名单配置位于 `skills/src2linyaps.debian.build-res-generate/build-section-blacklist.yaml`
+- 构建工具类型由 `src2linyaps.source.detect-tool` 前置检测提供
+
+### 构建缓存清理约束
+- 处理完成后的工程目录若需提交入库，必须清理构建缓存与下载产物，禁止将 `linglong/`、`bins/`、`reports/`、`build_cache/`、`file_res/`、`*.layer`、`*.uab` 以及下载的原始套件 `*.deb`/`*.tar.*`/`*.tgz`/`*.zip` 等 `git add` 加入提交
+- 提交前使用 `linyaps-git-workflow` skill 的 `clean_project_cache.sh <project_dir>` 清理缓存，并以 `pre-commit-guard.sh <project_dir>` 确认暂存区无任何缓存内容
+- 仅保留工程最小必要文件：`linglong.yaml`、`config/`（以及 `scripts/`、`templates/` 若存在）
+
 ## Skills 目录约定
 
 本 agent 协调以下专业 skills，各 skill 的资源路径约定如下：
 
 | Skill | 路径 | 核心脚本 | 输出 |
 |-------|------|---------|------|
+| src2linyaps.constraints | `skills/src2linyaps.constraints/` | —（仅约束契约，由 agent 载入） | 共享构建/校验约束 |
 | src2linyaps.debian.test-deps | `skills/src2linyaps.debian.test-deps/` | `scripts/test-build-deps.sh` | 依赖检测 JSON |
-| src2linyaps.debian.analyze-control | `skills/src2linyaps.debian.analyze-control/` | `scripts/parse-control.py`, `scripts/resolve-runtime-deps.py` | control + runtime YAML |
+| src2linyaps.debian.analyze-control | `skills/src2linyaps.debian.analyze-control/` | `scripts/init-control.py` | control + runtime YAML |
 | src2linyaps.debian.analyze-rules | `skills/src2linyaps.debian.analyze-rules/` | `scripts/analyze-rules.py` | build_section YAML |
 | src2linyaps.debian.build-res-generate | `skills/src2linyaps.debian.build-res-generate/` | `scripts/generate-linglong-yaml.py` | `linglong.yaml` |
 | src2linyaps.source.detect-tool | `skills/src2linyaps.source.detect-tool/` | `scripts/detect-build-tool.sh` | tool_type YAML |
 | src2linyaps.source.analyze-args | `skills/src2linyaps.source.analyze-args/` | `scripts/extract-build-args.py` | build_args YAML |
+| src2linyaps.debug | `skills/src2linyaps.debug/` | —（纯分析，复用各 skill 脚本） | 修复报告 |
 
 **调用约定**：所有脚本调用使用相对于 workspace 根目录的路径，**不要**使用 `cd` 切换工作目录后再执行。
 
-**用户不可独立调用**：所有子 skill 设置为 `user-invocable: false`，只能通过 agent 工作流间接使用。
+**用户不可独立调用**：除 `src2linyaps.debug`（`user-invocable: true`，独立调试入口）外，所有子 skill 设置为 `user-invocable: false`，只能通过 agent 工作流间接使用。
 
-## Workspace 根目录检测
+## Workspace 根目录
 
-在查找 skills 之前，**必须先确认 workspace 根目录**。LLM 的工作目录可能不是 workspace 根目录，导致相对路径全部失效。
+skills 路径已由平台固定为 `./skills/<name>/SKILL.md`（相对于 workspace 根目录），**无需搜索或遍历**。
 
-### 检测方法（按顺序执行）
+- 根目录为包含 `skills/` 和 `agents/` 目录的位置，记为 `WORKSPACE_ROOT`，所有脚本调用使用相对 `WORKSPACE_ROOT` 的路径。
 
-1. **检查当前目录**：若包含 `skills/` 和 `agents/` 目录，即为 workspace 根目录
-2. **向上遍历父目录**：最多 5 层，查找包含 `skills/` 和 `agents/` 的目录
-3. **客户端目录搜索**：在已声明的客户端配置目录中搜索
+## Skills 加载
 
-### 检测命令
-
-```bash
-# 方法1: 检查当前目录
-[ -d "skills" ] && [ -d "agents" ] && echo "Workspace root: $(pwd)"
-
-# 方法2: 向上查找（最多5层）
-current=$(pwd); for i in $(seq 1 5); do [ -d "$current/skills" ] && [ -d "$current/agents" ] && echo "Workspace root: $current" && break; current=$(dirname "$current"); done
-```
-
-**确认后**：所有后续路径都基于此 workspace 根目录。将根目录路径记为 `WORKSPACE_ROOT`，后续所有脚本调用使用 `$WORKSPACE_ROOT/skills/...` 或相对路径。
-
-## Skills 查找策略
-
-### OpenCode 环境（首选）
-
-直接使用内置 `skill` 工具加载：
+- **首选**：使用内置 `skill` 工具按 name 加载：
 
 ```
+skill({ name: "src2linyaps.constraints" })
 skill({ name: "src2linyaps.debian.test-deps" })
 skill({ name: "src2linyaps.debian.analyze-control" })
 skill({ name: "src2linyaps.debian.analyze-rules" })
 skill({ name: "src2linyaps.debian.build-res-generate" })
 skill({ name: "src2linyaps.source.detect-tool" })
 skill({ name: "src2linyaps.source.analyze-args" })
+skill({ name: "src2linyaps.debug" })
 ```
 
-### 其他客户端 / Fallback
-
-直接读取 `skills/*/SKILL.md` 文件（相对于 workspace 根目录）：
+- **Fallback**（`skill()` 工具不可用时）：直接读取固定路径 `skills/<name>/SKILL.md`：
 
 ```bash
 cat skills/src2linyaps.debian.test-deps/SKILL.md
@@ -215,6 +219,18 @@ cat skills/src2linyaps.debian.analyze-control/SKILL.md
 1. 验证 workspace 根目录是否包含 `skills/` 和 `agents/` 目录
 2. 创建输出目录 `output/${tag}/`
 3. 记录开始时间和项目路径
+
+#### 1.3 载入通用约束（一次，供全局复用）
+
+在 Phase 1 末尾**一次性**载入共享约束契约，后续步骤引用其约束、**不重复展开**：
+
+```
+skill({ name: "src2linyaps.constraints" })
+```
+
+载入后在会话状态/todo 记录「约束已加载」，正文明确后续 `src2linyaps.*` 步骤遵循该 SKILL 的
+`${PREFIX}` 安装目录、DESTDIR 黑名单、多包合并、运行时依赖存在性核验、校验契约。
+若 `skill()` 不可用，读取 `skills/src2linyaps.constraints/SKILL.md` 并内联记录其约束。
 
 ### Phase 2: 路径选择
 
@@ -258,9 +274,7 @@ project_path: <项目路径>
 
 **执行方式**：
 - 读取 `debian/control` 完整文本
-- 执行 `scripts/parse-control.py <control_file>` → 输出 control YAML（含 buildDepends）
-- 执行 `scripts/resolve-runtime-deps.py <control_yaml> --blacklist skills/src2linyaps.debian.analyze-control/runtime-depends-blacklist.json` → 输出 runtime YAML（含 runtimeDepends，已过滤黑名单包）
-- Agent 合并两者为完整的 control 信息
+- 执行 `scripts/init-control.py <control_file> --blacklist skills/src2linyaps.debian.analyze-control/runtime-depends-blacklist.json` → 输出完整 YAML（含 buildDepends + runtimeDepends）
 - 输出结构化信息 YAML
 
 #### Step A3: Rules 分析
@@ -274,10 +288,16 @@ debian_path: <项目路径>/debian
 control_info: <上一步输出的 control 信息>
 ```
 
-**执行方式**：
-- 读取 `debian/rules`, `debian/changelog`, `debian/*.install` 等文件
+**A3.1 机械分析（脚本）**
 - 执行 `scripts/analyze-rules.py <project_path> <debian_path> [control_yaml]`
-- 输出最终 YAML（含 build_section、baseline、resources）
+- 输出: `build_tool`, `build_args`, `baseline`, `resources`
+
+**A3.2 LLM 语义分析**
+- 读取 `debian/rules` 完整内容
+- 按 `src2linyaps.debian.analyze-rules` SKILL.md 指引执行语义分析
+- 识别额外编译参数 → 输出 `extra_args`
+- 输出完整 `build_section`（含 LLM 分析参数）
+- 合并 A3.1 + A3.2 输出 → 最终 YAML（含 `build_section`, `build_tool`, `build_args`, `extra_args`, `baseline`, `resources`）
 
 #### Step A4: 工程生成
 
@@ -302,6 +322,9 @@ command: ""                     # 默认值，用户可覆盖
   python3 generate-linglong-yaml.py \
     --control-info <control_info.yaml> \
     --build-section "<build_section>" \
+    --build-tool <tool_type> \
+    --build-args '<build_args_json>' \
+    --extra-args '<extra_args_string>' \
     --package-version <baseline> \
     --defaults skills/config/linglong-defaults.json \
     --output output/${tag}/linglong.yaml
@@ -356,6 +379,7 @@ tool_type: <上一步输出的工具类型>
    ```
    python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-yaml.py \
      output/${tag}/linglong.yaml \
+     --build-tool <tool_type> \
      --schema skills/config/linglong-schema.yaml
    ```
    - 退出码 0 则通过，继续步骤 2
@@ -423,16 +447,9 @@ resources:
 
 ### 调用前确认路径
 ```bash
-# 确认 workspace 根目录（若尚未确认）
-if [ -d "skills" ] && [ -d "agents" ]; then
-    echo "Workspace root: $(pwd)"
-else
-    # 向上查找
-    current=$(pwd); for i in $(seq 1 5); do
-        [ -d "$current/skills" ] && [ -d "$current/agents" ] && echo "Workspace root: $current" && break
-        current=$(dirname "$current")
-    done
-fi
+# 确认 workspace 根目录：所在目录必须同时包含 skills/ 与 agents/
+WORKSPACE_ROOT="$(pwd)"
+# 若当前目录不是根目录，按固定约定定位（skills 位于 ./skills/<name>/SKILL.md）
 ```
 
 ### 调用 test-deps
@@ -442,8 +459,7 @@ bash skills/src2linyaps.debian.test-deps/scripts/test-build-deps.sh <project_pat
 
 ### 调用 analyze-control
 ```bash
-python3 skills/src2linyaps.debian.analyze-control/scripts/parse-control.py <control_file>
-python3 skills/src2linyaps.debian.analyze-control/scripts/resolve-runtime-deps.py <control_yaml> \
+python3 skills/src2linyaps.debian.analyze-control/scripts/init-control.py <control_file> \
   --blacklist skills/src2linyaps.debian.analyze-control/runtime-depends-blacklist.json
 ```
 
@@ -457,6 +473,9 @@ python3 skills/src2linyaps.debian.analyze-rules/scripts/analyze-rules.py <projec
 python3 skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-yaml.py \
   --control-info <control_info.yaml> \
   --build-section "<build_section>" \
+  --build-tool <tool_type> \
+  --build-args '<build_args_json>' \
+  --extra-args '<extra_args_string>' \
   --package-version <baseline> \
   --defaults skills/config/linglong-defaults.json \
   --output output/${tag}/linglong.yaml
@@ -466,6 +485,7 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-y
 ```bash
 python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-yaml.py \
   output/${tag}/linglong.yaml \
+  --build-tool <tool_type> \
   --schema skills/config/linglong-schema.yaml
 ```
 
@@ -485,4 +505,4 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-y
 2. **CSV 优先**：CSV 配置值优先于自动检测值
 3. **临时文件**：处理完成后清理临时解压目录
 4. **日志保存**：所有测试和构建日志保存到 `data/` 目录
-5. **多客户端兼容性**：若工具调用失败，先按「Workspace 根目录检测」确认根目录，再按「Skills 查找策略」逐步查找；检查是否使用了 `cd` 切换工作目录，应改用绝对路径或相对 workspace 根目录的路径
+5. **多客户端兼容性**：若工具调用失败，先按「Workspace 根目录」确认根目录，再按「Skills 加载」的 fallback 读取固定路径 `skills/<name>/SKILL.md`；检查是否使用了 `cd` 切换工作目录，应改用绝对路径或相对 workspace 根目录的路径
