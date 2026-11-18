@@ -135,7 +135,7 @@ skills:
 | Skill | 路径 | 核心脚本 | 输出 |
 |-------|------|---------|------|
 | src2linyaps.debian.test-deps | `skills/src2linyaps.debian.test-deps/` | `scripts/test-build-deps.sh` | 依赖检测 JSON |
-| src2linyaps.debian.analyze-control | `skills/src2linyaps.debian.analyze-control/` | `scripts/parse-control.py`, `scripts/resolve-runtime-deps.py` | control + runtime YAML |
+| src2linyaps.debian.analyze-control | `skills/src2linyaps.debian.analyze-control/` | `scripts/init-control.py` | control + runtime YAML |
 | src2linyaps.debian.analyze-rules | `skills/src2linyaps.debian.analyze-rules/` | `scripts/analyze-rules.py` | build_section YAML |
 | src2linyaps.debian.build-res-generate | `skills/src2linyaps.debian.build-res-generate/` | `scripts/generate-linglong-yaml.py` | `linglong.yaml` |
 | src2linyaps.source.detect-tool | `skills/src2linyaps.source.detect-tool/` | `scripts/detect-build-tool.sh` | tool_type YAML |
@@ -258,9 +258,7 @@ project_path: <项目路径>
 
 **执行方式**：
 - 读取 `debian/control` 完整文本
-- 执行 `scripts/parse-control.py <control_file>` → 输出 control YAML（含 buildDepends）
-- 执行 `scripts/resolve-runtime-deps.py <control_yaml> --blacklist skills/src2linyaps.debian.analyze-control/runtime-depends-blacklist.json` → 输出 runtime YAML（含 runtimeDepends，已过滤黑名单包）
-- Agent 合并两者为完整的 control 信息
+- 执行 `scripts/init-control.py <control_file> --blacklist skills/src2linyaps.debian.analyze-control/runtime-depends-blacklist.json` → 输出完整 YAML（含 buildDepends + runtimeDepends）
 - 输出结构化信息 YAML
 
 #### Step A3: Rules 分析
@@ -442,8 +440,7 @@ bash skills/src2linyaps.debian.test-deps/scripts/test-build-deps.sh <project_pat
 
 ### 调用 analyze-control
 ```bash
-python3 skills/src2linyaps.debian.analyze-control/scripts/parse-control.py <control_file>
-python3 skills/src2linyaps.debian.analyze-control/scripts/resolve-runtime-deps.py <control_yaml> \
+python3 skills/src2linyaps.debian.analyze-control/scripts/init-control.py <control_file> \
   --blacklist skills/src2linyaps.debian.analyze-control/runtime-depends-blacklist.json
 ```
 

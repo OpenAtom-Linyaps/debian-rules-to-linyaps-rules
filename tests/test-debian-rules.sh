@@ -105,12 +105,38 @@ else
     echo "SKIP: apt-cache 命令不可用"
 fi
 
+# 测试 1.6: init-control.py 统一入口（一步完成解析 + 运行时依赖查询）
+echo ""
+echo "--- 测试 1.6: init-control.py 统一入口 ---"
+if [ -f "$CONTROL_FILE" ]; then
+    BLACKLIST="$PROJECT_ROOT/skills/src2linyaps.debian.analyze-control/runtime-depends-blacklist.json"
+    python3 "$PROJECT_ROOT/skills/src2linyaps.debian.analyze-control/scripts/init-control.py" \
+        "$CONTROL_FILE" --blacklist "$BLACKLIST" > /tmp/init-control-output.yaml
+    echo "init-control.py 执行成功"
+    cat /tmp/init-control-output.yaml
+
+    # 验证字段完整性
+    for field in pkgName buildDepends binaryPackages runtimeDepends; do
+        if grep -q "^${field}:" /tmp/init-control-output.yaml; then
+            echo "  ✓ 包含字段: $field"
+        else
+            echo "  ✗ 缺少字段: $field" >&2
+        fi
+    done
+else
+    echo "SKIP: control 文件不存在"
+fi
+
 # 测试 2: analyze-rules.py 解析
 echo ""
 echo "--- 测试 2: analyze-rules.py 解析 debian 规则 ---"
 if [ -f "$RULES_FILE" ] && [ -f "$CHANGELOG_FILE" ]; then
-    # 合并 control 和 runtime 信息
-    python3 -c "
+    # 优先使用 init-control.py 的合并输出，否则回退到手动合并
+    if [ -f /tmp/init-control-output.yaml ]; then
+        cp /tmp/init-control-output.yaml /tmp/merged-control.yaml
+        echo "使用 init-control.py 合并输出"
+    else
+        python3 -c "
 import yaml
 with open('/tmp/control-output.yaml') as f:
     c = yaml.safe_load(f)
@@ -124,6 +150,7 @@ except FileNotFoundError:
 with open('/tmp/merged-control.yaml', 'w') as f:
     yaml.dump(c, f)
 " 2>/dev/null || true
+    fi
 
     python3 "$PROJECT_ROOT/skills/src2linyaps.debian.analyze-rules/scripts/analyze-rules.py" \
         "$KATE_SRC_DIR" "$DEB_EXTRACT_DIR/debian" "/tmp/merged-control.yaml" > /tmp/rules-output.yaml

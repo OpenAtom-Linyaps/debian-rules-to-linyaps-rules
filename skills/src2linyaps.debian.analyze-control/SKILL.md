@@ -36,10 +36,11 @@ user-invocable: false
 5. 遍历所有 `Package:` 条目，收集 binary 包名称
 6. 对多个 Package 条目的构建依赖做并集去重
 7. 解析 `Description:` 字段（取第一个 Package 条目的描述）
-8. 基于 apt 仓库逐包查询 Build-Depends 的运行时依赖：
-- 调用 `scripts/parse-control.py <control_file>` → 输出 YAML（含 buildDepends）
-  - 调用 `scripts/resolve-runtime-deps.py <control_yaml> --blacklist runtime-depends-blacklist.json` → 输出 YAML（含 runtimeDepends，已过滤黑名单包）
-   - Agent 合并两个 YAML 结果
+8. 生成完整初始化 YAML（一步完成）：
+   - 调用 `scripts/init-control.py <control_file> --blacklist runtime-depends-blacklist.json` →
+     输出完整 YAML（含 buildDepends、buildDependsAlternatives、binaryPackages、runtimeDepends）
+   - 内部逻辑：先调用 `parse-control.py` 解析 control 字段，再调用 `resolve-runtime-deps.py`
+     基于 apt 仓库逐包查询 Build-Depends 的运行时依赖，自动合并两个结果
 9. 输出结构化结果
 
 ## 输出
@@ -57,11 +58,11 @@ buildDepends:
 buildDependsAlternatives:  # 或语法替代组，每组中任一包可用即可
   - - libjack-jackd2-dev
     - libjack-dev
-runtimeDepends:        # 基于 apt 仓库解析的运行时依赖
+runtimeDepends:        # 基于 apt 仓库解析的运行时依赖（已过滤黑名单包）
   - libc6
   - libcurl4
   - libarchive13
-  - qt6-base-dev
+  - libqt6core6
   - ...
 binaryPackages:
   - kate
@@ -75,8 +76,7 @@ binaryPackages:
 - 可能有多个 `Package:` 条目，构建依赖取并集去重
 - 不再区分主包和 common-data，全部合并到同一个输出
 - 依赖项中的版本约束（如 `(= 13)`、`(>= 3.16~)`）完整保留
-- 使用 `scripts/parse-control.py` 辅助解析
-- 使用 `scripts/resolve-runtime-deps.py` 查询运行时依赖
+- 使用 `scripts/init-control.py` 作为统一入口（内部编排 `parse-control.py` 和 `resolve-runtime-deps.py`）
 - 运行时依赖通过 `LC_ALL=C apt-cache depends` 查询，需要系统已配置 apt 仓库
 - 若 `apt-cache` 不可用或查询失败，`runtimeDepends` 输出空列表（不影响主流程）
 - 支持黑名单机制：`runtime-depends-blacklist.json` 中列出的包名会被从 `runtimeDepends` 中剔除，避免编译器、Mesa 驱动等非应用核心组件被错误写入

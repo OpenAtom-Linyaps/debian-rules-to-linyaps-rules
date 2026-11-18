@@ -65,7 +65,7 @@
 | 阶段 | 子 Skill | 职责 | 辅助脚本 |
 |------|----------|------|----------|
 | A1 | `src2linyaps.debian.test-deps` | 检测 `Build-Depends` 可用性（非交互式 dry-run） | `test-build-deps.sh` |
-| A2 | `src2linyaps.debian.analyze-control` | 解析 `debian/control`，多包合并去重；基于 apt 仓库解析运行时依赖 | `parse-control.py` + `resolve-runtime-deps.py` |
+| A2 | `src2linyaps.debian.analyze-control` | 解析 `debian/control`，多包合并去重；基于 apt 仓库解析运行时依赖 | `init-control.py` |
 | A3 | `src2linyaps.debian.analyze-rules` | 分析 rules/changelog/install 等，输出 build_section | `analyze-rules.py` |
 | A4 | `src2linyaps.debian.build-res-generate` | 合并 control + build_section + 默认值，生成 `linglong.yaml` | `generate-linglong-yaml.py` |
 
@@ -105,6 +105,7 @@
 │   │   ├── SKILL.md
 │   │   ├── runtime-depends-blacklist.json     # 运行时依赖黑名单（编译器/Mesa 等）
 │   │   └── scripts/
+│   │       ├── init-control.py              # [统一入口] 解析 control + 查询运行时依赖（编排 parse-control 与 resolve-runtime-deps）
 │   │       ├── parse-control.py
 │   │       └── resolve-runtime-deps.py        # 基于 apt-cache 查询运行时依赖
 │   ├── src2linyaps.debian.analyze-rules/     # [子 Skill] 构建规则 + 资源扫描
