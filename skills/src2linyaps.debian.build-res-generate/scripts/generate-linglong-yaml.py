@@ -32,6 +32,12 @@ import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# 源码编译工具（对应 --build-tool choices；qmake 不在 choices 内，故不含）
+SOURCE_BUILD_TOOLS = {'cmake', 'meson', 'make', 'autotools'}
+# clang 默认编译注入的构建/运行依赖（参照 reference/example-with-clang.linglong.yaml）
+CLANG_BUILD_DEPS = ['clang', 'lld', 'ccache']
+CLANG_RUNTIME_DEPS = ['libomp5']
+
 SPDX_HEADER = """# SPDX-FileCopyrightText: 2023 UnionTech Software Technology Co., Ltd.
 #
 # SPDX-License-Identifier: LGPL-3.0-or-later
@@ -218,7 +224,7 @@ def check_against_reference(build_section, build_tool, reference):
     return warnings, errors
 
 
-def build_yaml(data, build_section, version, architecture, base, runtime, command, with_deps):
+def build_yaml(data, build_section, version, architecture, base, runtime, command, with_deps, use_clang=False):
     pkg_name = data.get('pkgName', '') or ''
     description = data.get('pkgDescription', '') or ''
     raw_build_depends = data.get('buildDepends', []) or []
@@ -228,8 +234,18 @@ def build_yaml(data, build_section, version, architecture, base, runtime, comman
 
     build_section = build_section.replace('${prefix}', '${PREFIX}')
     build_section = replace_hardcoded_prefixes(build_section)
+    if use_clang:
+        build_section = 'export CC="clang"\nexport CXX="clang++"\n' + build_section
     if not build_section.endswith('\n'):
         build_section += '\n'
+
+    if use_clang:
+        for dep in CLANG_BUILD_DEPS:
+            if dep not in build_depends:
+                build_depends.append(dep)
+        if 'libomp5' not in runtime_depends:
+            runtime_depends.append('libomp5')
+        with_deps = True
     build_section += 'touch ${PREFIX}/.linyaps_genius\n'
     build_section += 'chmod -R 755 ${PREFIX}\n'
 
@@ -384,9 +400,13 @@ def main():
                         help='extra configure args from LLM semantic analysis (e.g. "--enable-qt --enable-dbus")')
     parser.add_argument('--reference', default='',
                         help='path to reference/common-building-rules.yaml')
+    parser.add_argument('--no-clang', action='store_true',
+                        help='不注入 clang 默认编译（用户声明 gcc/不用 clang 时由主 agent 传入）')
     args = parser.parse_args()
 
     control_info = read_yaml(args.control_info)
+
+    use_clang = (args.build_tool in SOURCE_BUILD_TOOLS) and not args.no_clang
 
     defaults = {}
     if args.defaults and os.path.isfile(args.defaults):
@@ -435,7 +455,7 @@ def main():
                 print(f"ERROR: {e}", file=sys.stderr)
             sys.exit(1)
 
-    result = build_yaml(control_info, build_section, version, architecture, base, runtime, command, with_deps)
+    result = build_yaml(control_info, build_section, version, architecture, base, runtime, command, with_deps, use_clang)
 
     raw = yaml.dump(result, default_flow_style=False, allow_unicode=True, sort_keys=False, width=4096)
     formatted = add_section_breaks(raw)
