@@ -29,18 +29,9 @@ Git 提交成功后，向 `linyaps-packer-*` 智能体发起打包指派。
 
 **调用时机**：Step A6/B4 中 Git 提交成功后
 
-**输入**：
-```json
-{
-  "action": "assign_packer",
-  "pkgName": "kate",
-  "project_dir": "CI_ll_kate",
-  "arch": "x86_64",
-  "workflow_type": "debian-rules-to-linyaps",
-  "data_dir": "./data/2026-07-09.log",
-  "workspace": "linyaps",
-  "agent_config_path": "/path/to/for-multica/agent-config.json"
-}
+**输入（assign_packer）**：`pkgName`、`project_dir`、`arch`、`workspace`、`agent_config_path` 必填；任务身份必须来自环境变量 `MULTICA_ISSUE_TASK_ID`，可用 `--issue-id` 仅作一致性校验。
+
+任务 ID 和平台 agent ID 必须是完整小写 UUID。配置中的 agent name 仅用于查询和显示；运行时从 `multica agent list --output json` 获取真实 UUID。
 ```
 
 **输出**：
@@ -54,22 +45,11 @@ Git 提交成功后，向 `linyaps-packer-*` 智能体发起打包指派。
 ```
 
 **执行逻辑**：
-1. 从 `agent-config.json` 的 `assignment.agents[]` 筛选 capabilities 包含 `linyaps_packaging` 的 agent
-2. **状态检查（热备方案）**：对每个候选 agent 执行 `scripts/check-agent-status.sh`：
-   - `idle` → 记录"目标空闲，可立即指派"
-   - `busy` → 记录警告"目标繁忙，仍发起指派（由平台排队）"，**不阻断**
-   - 脚本报错 → 记录警告"无法查询状态，直接发起指派"，**不阻断**
-3. **选择最佳节点**：优先 `idle`，全部 `busy` 则随机选一个
-4. **指派执行**：查询当前 issue ID（`multica issue list --output json` 的 `id`，精确 UUID），通过 `multica issue comment add` 发送 `@mention` 评论（UUID 绑定格式），再通过 `multica issue assign <issue-uuid> --to-id <agent-uuid>` 将 issue 指派给目标 agent：
-   ```
-   [@<packer_name>](mention://agent/<packer_uuid>) 请按照 <workflow_type> 流程执行 <project_dir> 打包任务（<arch>）
-   ```
-5. **记录指派日志**：写入 `data_dir/assignment.log`：
-   ```
-   assigned_packer, <pkgName>, <packer_name>, <arch>, <timestamp>
-   ```
-6. multica CLI 不可用或查询不到 ISSUE_ID → 记录警告，**不阻断**
-
+1. 显式校验 config、workspace、任务 UUID 和 CLI，失败输出 `blocked_reason`，不产生平台副作用。
+2. 按配置顺序筛选 `linyaps_packaging`，以名称查询平台 agent，拒绝非 UUID。
+3. `idle` 优先；`busy`、`running`、未知或状态查询失败均保留为可排队候选；无 idle 时选择配置顺序首个合法候选。
+4. 先评论后指派；评论失败不执行指派。指派失败不写成功日志。
+5. 评论和指派使用同一任务 UUID，指派使用 `--to-id <agent-uuid>`，mention 使用 `mention://agent/<agent-uuid>`。
 ### Action 2: `update_issue_status`
 
 所有任务执行完毕后，根据统计更新 multica issue 状态。
@@ -157,18 +137,10 @@ Git 提交成功后，向 `linyaps-packer-*` 智能体发起打包指派。
 2. **与 agent_config_path 指向的 agent-config.json 的 assignment 区段绑定**：目标 agent 列表从配置读取
 3. **`check_endpoint` 冷备未上线**：当前使用 `check-agent-status.sh` 脚本作为热备方案；后续上线后改由端点查询
 
-## 精确 UUID 约束（重要）
+## 精确 UUID 约束
 
-## Issue 68 安全契约
+任务唯一身份是导出的 `MULTICA_ISSUE_TASK_ID` 小写 UUID。缺失、非法或与 `--issue-id` 不一致时 blocked；禁止从 issue 列表、数字标识、历史评论、目录或 agent 名称推断。配置名称不作为 assign 身份，平台返回的 agent UUID 才是唯一 assign 身份。
 
-当前任务唯一身份是 `issue_id`/`MULTICA_ISSUE_TASK_ID` 的小写 UUID。禁止使用 `multica issue list --limit 1`、历史评论或目录推断。所有评论与指派必须经过 UUID 和任务字段门控；失败统一输出 `blocked`/`blocked_reason`，不得产生副作用。
-
-**Issue 62 修复后，issue 与 agent 双端一律以精确 UUID 管理，禁止模糊匹配。**
-
-- **issue id**：一律使用 `multica issue list --output json` 的 `id`（UUID，形如 `d3eab8d0-6295-4ee8-916a-1822b4e57aa3`）。**禁止** `issue-\d+` 正则、数字、`identifier`(`LIN-xxxx`) 作为 issue 标识——平台不返回这些文本，正则永不命中。
-- **agent id**：一律使用 `multica agent list --output json` 的 `id`（UUID）。指派用 `multica issue assign <issue-uuid> --to-id <agent-uuid>`。
-- **@mention**：使用 UUID 绑定格式 `[@<name>](mention://agent/<uuid>)`，不要用纯 `@<name>`。
-- **校验**：取得的 ID 必须通过 UUID 正则（小写十六进制）校验；非 UUID 一律跳过并记录判别原因（`cli_unavailable` / `issue_id_not_found` / `agent_uuid_missing` / `invalid_uuid`）。
-- **输出**：`output_json` 应包含 `target_agent_uuid` 与 `blocked_reason`，异常时通过 `blocked_reason` 判别失败原因。
+输出必须包含 `target_agent_uuid`、`agent_status` 和 `blocked_reason`；异常不得产生 comment、assign 或成功 assignment 日志副作用。
 
 实现参考：`scripts/dispatch.sh` 的 `get_issue_id()`、`is_uuid()` 与 `assign_packer` 的 `--to-id` 指派逻辑。

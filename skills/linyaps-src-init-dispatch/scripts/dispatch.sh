@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ACTION="${1:-}"
 shift || true
 
-# 参数
+CONFIG_FILE=""
 WORKSPACE=""
 OUTPUT_FILE=""
 PKG_NAME=""
@@ -33,134 +33,80 @@ AGENT_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workspace=*)    WORKSPACE="${1#*=}" ;;
-    --output=*)       OUTPUT_FILE="${1#*=}" ;;
-    --pkgName=*)      PKG_NAME="${1#*=}" ;;
-    --project_dir=*)  PROJECT_DIR="${1#*=}" ;;
-    --arch=*)         ARCH="${1#*=}" ;;
+    --workspace=*) WORKSPACE="${1#*=}" ;;
+    --output=*) OUTPUT_FILE="${1#*=}" ;;
+    --pkgName=*) PKG_NAME="${1#*=}" ;;
+    --project_dir=*) PROJECT_DIR="${1#*=}" ;;
+    --arch=*) ARCH="${1#*=}" ;;
     --workflow_type=*) WORKFLOW_TYPE="${1#*=}" ;;
-    --data-dir=*)     DATA_DIR="${1#*=}" ;;
-    --config=*)       CONFIG_FILE="${1#*=}" ;;
-    --success=*)      SUCCESS_COUNT="${1#*=}" ;;
-    --fail=*)         FAIL_COUNT="${1#*=}" ;;
-    --agent_name=*)   AGENT_NAME="${1#*=}" ;;
-    --issue-id=*)     ISSUE_ID_ARG="${1#*=}" ;;
-    *)
-      echo "未知参数: $1" >&2
-      exit 1
-      ;;
+    --data-dir=*) DATA_DIR="${1#*=}" ;;
+    --config=*) CONFIG_FILE="${1#*=}" ;;
+    --success=*) SUCCESS_COUNT="${1#*=}" ;;
+    --fail=*) FAIL_COUNT="${1#*=}" ;;
+    --agent_name=*) AGENT_NAME="${1#*=}" ;;
+    --issue-id=*) ISSUE_ID_ARG="${1#*=}" ;;
+    *) echo "未知参数: $1" >&2; exit 1 ;;
   esac
   shift
 done
 
-output_json() {
-  local json="$1"
-  if [[ -n "$OUTPUT_FILE" ]]; then
-    echo "$json" > "$OUTPUT_FILE"
-  else
-    echo "$json"
-  fi
-}
-
-# UUID 精确校验（小写十六进制）
+output_json() { if [[ -n "$OUTPUT_FILE" ]]; then printf '%s\n' "$1" > "$OUTPUT_FILE"; else printf '%s\n' "$1"; fi; }
 UUID_RE='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-
-is_uuid() {
-  [[ "$1" =~ $UUID_RE ]]
-}
-
-# The handoff UUID is the only authoritative task identity.
+is_uuid() { [[ "$1" =~ $UUID_RE ]]; }
+json_reason() { python3 -c 'import json,sys; print(json.dumps({"assigned":False,"blocked":True,"blocked_reason":sys.argv[1]}))' "$1"; }
 get_issue_id() {
-  local env_id="${MULTICA_ISSUE_TASK_ID:-}"
-  if [[ -n "$ISSUE_ID_ARG" && -n "$env_id" && "$ISSUE_ID_ARG" != "$env_id" ]]; then return 3; fi
-  local id="${env_id:-$ISSUE_ID_ARG}"
-  if [[ -z "$id" ]]; then return 4; fi
-  if ! is_uuid "$id"; then return 5; fi
+  local env_id="${MULTICA_ISSUE_TASK_ID:-}" id="${env_id:-$ISSUE_ID_ARG}"
+  [[ -n "$ISSUE_ID_ARG" && -n "$env_id" && "$ISSUE_ID_ARG" != "$env_id" ]] && return 3
+  [[ -n "$id" ]] && is_uuid "$id" || return 4
   printf '%s\n' "$id"
 }
 
-blocked_json() {
-  local reason="$1"; output_json "{\"assigned\":false,\"blocked\":true,\"blocked_reason\":\"$reason\"}"
-}
-
-
-# ---- assign_packer ----
-  if [[ -z "${MULTICA_ISSUE_TASK_ID:-}" && -z "$ISSUE_ID_ARG" ]]; then blocked_json "issue_id_required"; exit 0; fi
-  if [[ -n "${MULTICA_ISSUE_TASK_ID:-}" ]] && ! is_uuid "$MULTICA_ISSUE_TASK_ID"; then blocked_json "invalid_uuid"; exit 0; fi
 if [[ "$ACTION" == "assign_packer" ]]; then
-  if [[ -z "$PKG_NAME" || -z "$PROJECT_DIR" || -z "$ARCH" ]]; then
-    echo '{"error":"缺少必填参数: --pkgName, --project_dir, --arch"}' >&2
-    exit 1
-  fi
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo '{"error":"agent-config.json 不存在: '"$CONFIG_FILE"'"}' >&2
-    exit 1
-  fi
-
-  # 读取配置，筛选 linyaps_packaging agent
-  AGENTS_JSON=$(python3 -c "
-import json
-with open('$CONFIG_FILE') as f:
-    cfg = json.load(f)
-agents = cfg.get('assignment', {}).get('agents', [])
-result = [a for a in agents if 'linyaps_packaging' in a.get('capabilities', [])]
-print(json.dumps(result))
-" 2>/dev/null) || AGENTS_JSON="[]"
-
-  AGENT_COUNT=$(echo "$AGENTS_JSON" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null) || AGENT_COUNT=0
-
-  if [[ "$AGENT_COUNT" -eq 0 ]]; then
-    echo "[WARN] 未找到 capabilities 包含 linyaps_packaging 的 agent" >&2
-    output_json "{\"assigned\":false,\"target_agent\":\"\",\"timestamp\":\"$(date +'%Y-%m-%d %H:%M:%S')\",\"agent_status\":\"unknown\"}"
-    exit 0
-  fi
-
-  # 状态检查 + 选择最佳节点
-  SELECTED_AGENT=""
-  SELECTED_UUID=""
-  SELECTED_STATUS="unknown"
-  for row in $(echo "$AGENTS_JSON" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for a in data:
-    print(f'{a[\"id\"]}|{a.get(\"name\", a[\"id\"])}')
-" 2>/dev/null); do
-    AGENT_ID="${row%%|*}"
-    AGENT_NAME="${row##*|}"
-    STATUS_RESULT=$(bash "$SCRIPT_DIR/check-agent-status.sh" \
-      ${WORKSPACE:+-w "$WORKSPACE"} -n "$AGENT_NAME" -o json 2>/dev/null || true)
-    AGENT_UUID=""
-    if [[ -n "$STATUS_RESULT" ]]; then
-      parse=$(echo "$STATUS_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); a=d.get('agent',{}); print(a.get('status','unknown')); print(a.get('id',''))" 2>/dev/null) || parse=$'unknown\n'
-      STATUS="$(printf '%s\n' "$parse" | sed -n '1p')"
-      AGENT_UUID="$(printf '%s\n' "$parse" | sed -n '2p')"
-    else STATUS="unknown"; fi
-    if [[ "$STATUS" == "idle" && "$AGENT_UUID" == "$AGENT_ID" ]] && is_uuid "$AGENT_UUID"; then
-      SELECTED_AGENT="$AGENT_NAME"; SELECTED_UUID="$AGENT_UUID"; SELECTED_STATUS="idle"; break
-    fi
-  done
-  if [[ -z "$SELECTED_AGENT" ]]; then blocked_json "agent_unavailable"; exit 0; fi
-  ASSIGNED=false; BLOCKED_REASON=""
-  if ! command -v multica &>/dev/null; then blocked_json "cli_unavailable"; exit 0; fi
-  [[ -n "$WORKSPACE" ]] && multica workspace switch "$WORKSPACE" >/dev/null 2>&1 || true
-  if ! ISSUE_ID=$(get_issue_id); then blocked_json "issue_id_required"; exit 0; fi
-  WT="${WORKFLOW_TYPE:-debian-rules-to-linyaps}"
-  MENTION="[@${SELECTED_AGENT}](mention://agent/${SELECTED_UUID})"
-  if ! multica issue comment add "$ISSUE_ID" --content "${MENTION} 请按照 ${WT} 流程执行 ${PROJECT_DIR} 打包任务（${ARCH}）" 2>/dev/null; then
-    blocked_json "comment_failed"; exit 0
-  fi
-  if multica issue assign "$ISSUE_ID" --to-id "$SELECTED_UUID" 2>/dev/null; then ASSIGNED=true; else BLOCKED_REASON="assign_failed"; fi
-
-  # 记录指派日志
-  if [[ -n "$DATA_DIR" ]]; then
-    mkdir -p "$(dirname "$DATA_DIR" 2>/dev/null || echo "$DATA_DIR")" 2>/dev/null || true
-    echo "assigned_packer, ${PKG_NAME}, ${SELECTED_AGENT}, ${ARCH}, $(date +'%Y-%m-%d %H:%M:%S')" >> "${DATA_DIR}/assignment.log" 2>/dev/null || true
-  fi
-
-  output_json "$(cat <<JSON
-{"assigned":${ASSIGNED},"target_agent":"${SELECTED_AGENT}","target_agent_uuid":"${SELECTED_UUID:-""}","blocked_reason":"${BLOCKED_REASON:-}" ,"timestamp":"$(date +'%Y-%m-%d %H:%M:%S')","agent_status":"${SELECTED_STATUS}"}
-JSON
-)"
+  if [[ -z "$CONFIG_FILE" || ! -f "$CONFIG_FILE" ]]; then output_json "$(json_reason config_required)"; exit 0; fi
+  if [[ -z "$PKG_NAME" || -z "$PROJECT_DIR" || -z "$ARCH" || -z "$WORKSPACE" ]]; then output_json "$(json_reason required_parameter)"; exit 0; fi
+  ISSUE_ID=""; if ! ISSUE_ID=$(get_issue_id); then output_json "$(json_reason issue_id_invalid)"; exit 0; fi
+  command -v multica >/dev/null 2>&1 || { output_json "$(json_reason cli_unavailable)"; exit 0; }
+  AGENTS_JSON=$(python3 - "$CONFIG_FILE" <<'PY'
+import json,sys
+try:
+ c=json.load(open(sys.argv[1])); print(json.dumps([a for a in c.get('assignment',{}).get('agents',[]) if 'linyaps_packaging' in a.get('capabilities',[])]))
+except Exception: print('[]')
+PY
+)
+  PLATFORM_JSON=$(multica agent list --output json 2>/dev/null) || { output_json "$(json_reason agent_list_failed)"; exit 0; }
+  CANDIDATES=$(python3 - "$AGENTS_JSON" "$PLATFORM_JSON" <<'PY'
+import json,sys
+cfg=json.loads(sys.argv[1]); raw=json.loads(sys.argv[2]); agents=raw.get('agents',raw) if isinstance(raw,dict) else raw
+byname={a.get('name'):a for a in agents}
+for c in cfg:
+ a=byname.get(c.get('name'))
+ if a and isinstance(a.get('id'),str): print(json.dumps({'name':c.get('name',''),'id':a['id'],'status':a.get('status','unknown')}))
+PY
+)
+  SELECTED_NAME=""; SELECTED_UUID=""; SELECTED_STATUS="unknown"; FALLBACK=""
+  while IFS= read -r row; do
+    [[ -z "$row" ]] && continue
+    name=$(python3 -c 'import json,sys;print(json.load(sys.stdin)["name"])' <<<"$row")
+    uuid=$(python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])' <<<"$row")
+    status=$(python3 -c 'import json,sys;print(json.load(sys.stdin).get("status","unknown"))' <<<"$row")
+    is_uuid "$uuid" || continue
+    [[ -z "$FALLBACK" ]] && FALLBACK="$name|$uuid|$status"
+    [[ "$status" == "idle" ]] && { SELECTED_NAME="$name"; SELECTED_UUID="$uuid"; SELECTED_STATUS="idle"; break; }
+  done <<<"$CANDIDATES"
+  if [[ -z "$SELECTED_NAME" && -n "$FALLBACK" ]]; then IFS='|' read -r SELECTED_NAME SELECTED_UUID SELECTED_STATUS <<<"$FALLBACK"; fi
+  [[ -n "$SELECTED_NAME" ]] || { output_json "$(json_reason agent_unavailable)"; exit 0; }
+  [[ "$SELECTED_STATUS" == "idle" || "$SELECTED_STATUS" == "busy" || "$SELECTED_STATUS" == "running" ]] || SELECTED_STATUS="unknown"
+  WT="${WORKFLOW_TYPE:-debian-rules-to-linyaps}"; MENTION="[@${SELECTED_NAME}](mention://agent/${SELECTED_UUID})"
+  multica workspace switch "$WORKSPACE" >/dev/null 2>&1 || true
+  if ! multica issue comment add "$ISSUE_ID" --content "${MENTION} 请按照 ${WT} 流程执行 ${PROJECT_DIR} 打包任务（${ARCH}）" >/dev/null 2>&1; then output_json "$(json_reason comment_failed)"; exit 0; fi
+  ASSIGNED=false; REASON=""
+  multica issue assign "$ISSUE_ID" --to-id "$SELECTED_UUID" >/dev/null 2>&1 && ASSIGNED=true || REASON="assign_failed"
+  if [[ "$ASSIGNED" == true && -n "$DATA_DIR" ]]; then mkdir -p "$(dirname "$DATA_DIR")"; printf 'assigned_packer, %s, %s, %s, %s\n' "$PKG_NAME" "$SELECTED_NAME" "$ARCH" "$(date +'%Y-%m-%d %H:%M:%S')" >> "$DATA_DIR/assignment.log"; fi
+  output_json "$(python3 - "$ASSIGNED" "$SELECTED_NAME" "$SELECTED_UUID" "$SELECTED_STATUS" "$REASON" <<'PY'
+import json,sys
+print(json.dumps({'assigned':sys.argv[1]=='true','target_agent':sys.argv[2],'target_agent_uuid':sys.argv[3],'agent_status':sys.argv[4],'blocked_reason':sys.argv[5]}))
+PY
+)"; exit 0
 
 # ---- update_issue_status ----
 elif [[ "$ACTION" == "update_issue_status" ]]; then

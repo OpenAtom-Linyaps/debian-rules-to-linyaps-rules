@@ -39,15 +39,16 @@ skills:
 
 ## 全局声明
 
-全局配置存放在独立的 `agent-config.json` 文件中（固定路径 `WORKSPACE_ROOT/agent-config.json`），与任务文件分开管理。
+全局配置由调用方显式传入 `agent_config_path`，启动时解析为绝对路径并校验存在；不依赖固定 cwd 或固定配置路径。
 
 **`agent-config.json` 结构**：
 ```json
 {
-  "global": {
-    "projects_root": "<本地项目目录>",
-    "output_dir": "<产出目录，支持 ${tag} 占位符>",
-    "data_dir": "<数据记录目录>",
+  "global": {"output_dir": "./output", "data_dir": "./data/dispatch.log"},
+  "extension": [],
+  "assignment": {"agents": []}
+}
+```
     "build_tmp_dir": "<构建缓存目录>",
     "src_dir": "<资源下载目录>",
     "base": "<玲珑基础运行环境>",
@@ -79,8 +80,8 @@ skills:
 | `runtime` | 玲珑运行时环境 | `org.deepin.runtime.dtk/25.2.2` |
 | `architecture` | 目标架构 | `x86_64` |
 | `projects_root` | 本地项目目录 | `./src` |
-| `output_dir` | 产出目录 | `./output/${tag}` |
-| `data_dir` | 数据记录目录 | `./data/${tag}.log` |
+| `output_dir` | 产出目录 | `./output` |
+| `data_dir` | 数据记录目录 | `./data/dispatch.log` |
 | `build_tmp_dir` | 构建缓存目录 | `./build_cache` |
 | `src_dir` | 资源下载目录 | `./src` |
 
@@ -90,12 +91,7 @@ skills:
 3. `agent-config.json` 的 `global` 区段（fallback）
 4. agent.md 中的硬编码默认值（最低优先级）
 
-**⚠️ `${tag}` 路径即时解析规则（必须遵守）**
-`agent-config.json` 中的路径可能包含 `${tag}` 占位符。**你必须在 Phase 1 载入配置后立即执行：**
-1. 运行 `date +"%Y-%m-%d"` 获取当天日期（如 `2026-07-09`）
-2. 将所有含 `${tag}` 的路由替换为完整路径（例如 `./output/${tag}` → `./output/2026-07-09`）
-3. **记录解析后的完整路径**，后续所有步骤均使用完整路径，不再出现 `${tag}`
-4. **禁止**将 `${tag}` 原样传递给任何 bash 命令、mkdir、curl 或其他工具
+配置路径不使用模板或日期替换。启动时将 workspace、skills、agents、配置及 extension 路径解析为绝对路径并校验；失败立即 blocked。
 
 ## 约束条件
 ## 任务身份契约
@@ -204,24 +200,9 @@ cat skills/src2linyaps.debian.analyze-control/SKILL.md
 
 #### 1.1 载入全局配置
 
-1. **读取 `agent-config.json`**（固定路径 `WORKSPACE_ROOT/agent-config.json`）：
-   - 解析 `global` 配置（`base`、`runtime`、`architecture`、`projects_root`、`output_dir`、`data_dir`、`build_tmp_dir`、`src_dir`）
-   - 解析 `extension` 区段
-   - **若文件不存在**：使用 agent.md 中的硬编码默认值
-
-2. **`${tag}` 路径即时解析**：
-   - 运行 `date +"%Y-%m-%d"` 获取当天日期
-   - 将所有含 `${tag}` 的路由替换为完整路径
-   - **记录解析后的完整路径**，后续所有步骤均使用完整路径
-
-3. **载入顺序（优先级从高到低）**：
-   - CSV 显式字段 > 任务 JSON 的 `global` 区段 > `agent-config.json` > agent.md 默认值
-
-#### 1.2 验证与创建目录
-
-1. 验证 workspace 根目录是否包含 `skills/` 和 `agents/` 目录
-2. 创建输出目录 `output/${tag}/`
-3. 记录开始时间和项目路径
+1. 读取调用方显式传入的 `agent_config_path`，解析为绝对路径，校验 JSON、必需字段及 workspace/skills/agents/extension 路径；缺失或非法配置输出明确 blocked 原因并停止依赖该配置的动作。
+2. 固化 `WORKSPACE_ROOT`、`skills_root`、workspace 与 extension 路径为绝对路径，脚本调用不依赖当前 cwd。
+3. 使用稳定的 `output` 与 `data/dispatch.log` 路径，不执行日期或模板替换。
 
 #### 1.3 载入通用约束（一次，供全局复用）
 
@@ -329,13 +310,12 @@ command: ""                     # 默认值，用户可覆盖
     --build-args '<build_args_json>' \
     --extra-args '<extra_args_string>' \
     --package-version <baseline> \
-    --defaults skills/config/linglong-defaults.json \
-    --output output/${tag}/linglong.yaml
+    --output output/linglong.yaml
   ```
 - 使用 `--defaults` 中的值作为 Architecture/base/runtime/command 的默认值
 - 用户可通过额外参数显式覆盖默认值
 
-**输出**：`output/${tag}/linglong.yaml`（完整的玲珑构建配方）
+**输出**：`output/linglong.yaml`（完整的玲珑构建配方）
 
 ---
 
@@ -372,7 +352,7 @@ tool_type: <上一步输出的工具类型>
 
 - 使用 `linglong-defaults.json` 中的默认值
 - 调用 `generate-linglong-yaml.py` 生成 `linglong.yaml`（若无 debian/ 则使用 fallback build_section）
-- 输出：`output/${tag}/linglong.yaml`
+- 输出：`output/linglong.yaml`
 
 ---
 
@@ -381,16 +361,15 @@ tool_type: <上一步输出的工具类型>
 1. **格式校验**：使用 `validate-linglong-yaml.py` 校验 `linglong.yaml` 格式与字段合法性：
    ```
    python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-yaml.py \
-     output/${tag}/linglong.yaml \
+     output/linglong.yaml \
      --build-tool <tool_type> \
      --schema skills/config/linglong-schema.yaml
    ```
    - 退出码 0 则通过，继续步骤 2
    - 退出码非 0 则输出错误列表并终止（失败处理）
 
-2. **输出最终文件**：将 `linglong.yaml` 写入 `output/${tag}/linglong.yaml`
-
-3. **输出路径**：输出 `output/${tag}/linglong.yaml` 路径给用户
+2. **输出最终文件**：将 `linglong.yaml` 写入 `output/linglong.yaml`
+3. **输出路径**：输出 `output/linglong.yaml` 路径给用户
 
 ## 失败处理策略
 
@@ -481,13 +460,13 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-y
   --extra-args '<extra_args_string>' \
   --package-version <baseline> \
   --defaults skills/config/linglong-defaults.json \
-  --output output/${tag}/linglong.yaml
+  --output output/linglong.yaml
 ```
 
 ### 调用 validate-linglong-yaml
 ```bash
 python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-yaml.py \
-  output/${tag}/linglong.yaml \
+  output/linglong.yaml \
   --build-tool <tool_type> \
   --schema skills/config/linglong-schema.yaml
 ```
