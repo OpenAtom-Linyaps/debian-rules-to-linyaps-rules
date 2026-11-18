@@ -1,7 +1,0 @@
-0001-configure-fix-linking-on-RISC-V-ISA.patch
-0002-Do-not-generate-cache-during-build.patch
-0003-Bump-module-ABI-for-time_t-transition.patch
-0004-avcodec-encoder-remove-AV_INPUT_BUFFER_MIN_SIZE-usag.patch
-0005-avcodec-video-use-frame-flags-instead-of-fields.patch
-0006-avcodec-use-AV_PROFILE_xxx-instead-of-FF_PROFILE_xxx.patch
-0007-avcodec-use-AV_LEVEL_xxx-instead-of-FF_LEVEL_xxx.patch

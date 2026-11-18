@@ -1,3 +1,0 @@
-usr/include/vlc/*.h
-usr/lib/*/libvlc.so
-usr/lib/*/pkgconfig/libvlc.pc

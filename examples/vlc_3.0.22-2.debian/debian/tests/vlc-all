@@ -1,4 +1,0 @@
-#!/bin/sh
-set -e
-
-vlc -vvv --ignore-config --list --no-color
