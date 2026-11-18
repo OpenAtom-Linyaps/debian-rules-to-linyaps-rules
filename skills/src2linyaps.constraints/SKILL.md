@@ -5,6 +5,8 @@ description: >
   构建/校验约束与运行期操作契约、上下文效率规则（${PREFIX} 安装目录、DESTDIR 黑名单、
   多包合并、运行时依赖存在性核验、校验契约、运行期操作契约、上下文效率）。
   由主 agent 在初始化阶段一次性载入，各子 skill 引用本 SKILL 而非各自复述。
+references:
+  - references/dispatch-action-fields.md
 user-invocable: false
 ---
 
@@ -45,6 +47,7 @@ user-invocable: false
 - **加载方式**：优先 `skill({ name: "<name>" })`；不可用时 fallback 按需 `cat skills/<name>/SKILL.md`，不批量预读。
 - **用户不可独立调用**：除 `src2linyaps.debug`（`user-invocable: true`）外，所有子 skill 均为 `user-invocable: false`，只能经 agent 工作流间接调用。
 - **配置取值优先级**：CSV 显式字段 > 任务 JSON 的 `global` > `agent-config.json` 的 `global` > agent 默认值；`agent-config.json` 字段与取值以其自身为准，agent 不内联 JSON 结构。
+- **字段声明不内联**：agent.md 调用 `linyaps-src-init-dispatch` 各动作（`dispatch_init`/`assign_packer`/`update_issue_status`）的字段声明通过本 SKILL 的 references 提供（`references/dispatch-action-fields.md`），不在 agent.md 正文内联字段声明代码块。
 - **多客户端兼容**：工具调用失败时先确认 `WORKSPACE_ROOT`（须同时含 `skills/` 与 `agents/`），再按固定路径 fallback 读取 SKILL.md，并检查是否误用 `cd`。
 
 ## 7. 上下文效率（统一）
