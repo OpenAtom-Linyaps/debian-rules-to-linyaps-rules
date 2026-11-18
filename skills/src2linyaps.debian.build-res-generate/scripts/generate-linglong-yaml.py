@@ -13,9 +13,14 @@ generate-linglong-yaml.py — 基于 analyze-control 输出的依赖信息 + ana
         [--architecture <arch>] \\
         [--base <base>] \\
         [--runtime <runtime>] \\
-        [--command <cmd>]
+        [--command <cmd>] \\
+        [--build-tool <tool>] \\
+        [--blacklist <path>]
 
 取值优先级: CLI 显式参数 > defaults JSON > 硬编码默认值
+
+--build-tool: 构建工具类型 (cmake/meson/make/autotools/unknown)，由 detect-tool 提供
+--blacklist:  build-section-blacklist.yaml 路径，默认自动定位到 skill 目录
 """
 
 import argparse
@@ -103,6 +108,32 @@ def replace_hardcoded_prefixes(s: str) -> str:
     return s
 
 
+def load_blacklist(path=None):
+    if path is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, '..', 'build-section-blacklist.yaml')
+    if not os.path.isfile(path):
+        return None
+    with open(path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    return config.get('blacklist', {})
+
+
+def check_blacklist(build_section, build_tool, blacklist):
+    errors = []
+    if build_tool not in blacklist:
+        return errors
+    forbidden = blacklist.get(build_tool, [])
+    for word in forbidden:
+        pattern = re.compile(rf'{re.escape(word)}=\S+')
+        if pattern.search(build_section):
+            errors.append(
+                f"build section contains '{word}=<value>' "
+                f"which is not allowed for build tool type '{build_tool}'"
+            )
+    return errors
+
+
 def build_yaml(data, build_section, version, architecture, base, runtime, command, with_deps):
     pkg_name = data.get('pkgName', '') or ''
     description = data.get('pkgDescription', '') or ''
@@ -160,6 +191,11 @@ def main():
     parser.add_argument('--command', default=None)
     parser.add_argument('--defaults', default='')
     parser.add_argument('--output', required=True)
+    parser.add_argument('--build-tool', default='unknown',
+                        choices=['cmake', 'meson', 'make', 'autotools', 'unknown'],
+                        help='build tool type (from detect-tool)')
+    parser.add_argument('--blacklist', default='',
+                        help='path to build-section-blacklist.yaml')
     args = parser.parse_args()
 
     control_info = read_yaml(args.control_info)
@@ -177,6 +213,15 @@ def main():
     runtime = get_value(args.runtime, defaults.get('runtime', ''))
     command = get_value(args.command, defaults.get('command', 'bash'))
     build_section = args.build_section if args.build_section else defaults.get('build_section_fallback', '')
+
+    # Blacklist check
+    blacklist = load_blacklist(args.blacklist if args.blacklist else None)
+    if blacklist:
+        bl_errors = check_blacklist(build_section, args.build_tool, blacklist)
+        if bl_errors:
+            for err in bl_errors:
+                print(f"ERROR: {err}", file=sys.stderr)
+            sys.exit(1)
 
     result = build_yaml(control_info, build_section, version, architecture, base, runtime, command, with_deps)
 

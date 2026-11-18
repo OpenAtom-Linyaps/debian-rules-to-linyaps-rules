@@ -128,6 +128,14 @@ skills:
 - 其他构建工具的构建规则以此类推，所有编译产物安装路径必须基于 `${PREFIX}`
 - 校验阶段通过 `validate-linglong-yaml.py` 自动检查此约束
 
+### DESTDIR 黑名单约束
+- `DESTDIR=<value>` 仅允许出现在 `make` 工程中
+- 对于 `cmake`/`meson`/`autotools`/`unknown` 类型，`DESTDIR=` 与 `--prefix`/`-DCMAKE_INSTALL_PREFIX` 重复指定会导致安装目录错误嵌套（如 `${PREFIX}${PREFIX}`）
+- 生成阶段通过 `generate-linglong-yaml.py --build-tool` 校验，若命中黑名单则阻止生成
+- 校验阶段通过 `validate-linglong-yaml.py --build-tool` 二次检测
+- 黑名单配置位于 `skills/src2linyaps.debian.build-res-generate/build-section-blacklist.yaml`
+- 构建工具类型由 `src2linyaps.source.detect-tool` 前置检测提供
+
 ## Skills 目录约定
 
 本 agent 协调以下专业 skills，各 skill 的资源路径约定如下：
@@ -301,6 +309,7 @@ command: ""                     # 默认值，用户可覆盖
     --control-info <control_info.yaml> \
     --build-section "<build_section>" \
     --package-version <baseline> \
+    --build-tool <tool_type> \
     --defaults skills/config/linglong-defaults.json \
     --output output/${tag}/linglong.yaml
   ```
@@ -354,6 +363,7 @@ tool_type: <上一步输出的工具类型>
    ```
    python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-yaml.py \
      output/${tag}/linglong.yaml \
+     --build-tool <tool_type> \
      --schema skills/config/linglong-schema.yaml
    ```
    - 退出码 0 则通过，继续步骤 2
@@ -455,6 +465,7 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-y
   --control-info <control_info.yaml> \
   --build-section "<build_section>" \
   --package-version <baseline> \
+  --build-tool <tool_type> \
   --defaults skills/config/linglong-defaults.json \
   --output output/${tag}/linglong.yaml
 ```
@@ -463,6 +474,7 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-y
 ```bash
 python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-yaml.py \
   output/${tag}/linglong.yaml \
+  --build-tool <tool_type> \
   --schema skills/config/linglong-schema.yaml
 ```
 

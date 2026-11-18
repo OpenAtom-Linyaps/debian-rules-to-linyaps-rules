@@ -28,6 +28,7 @@ user-invocable: false
 | `base` | string | base 镜像 | `defaults.json` |
 | `runtime` | string | runtime 镜像 | `defaults.json` |
 | `command` | string | 启动命令，按空格切割为 YAML 数组元素 | `defaults.json` |
+| `build_tool` | string | 构建工具类型（`cmake`/`meson`/`make`/`autotools`/`unknown`），由 `detect-tool` 前置检测提供 | `detect-tool` 输出 |
 | `agent_config_path` | string | `agent-config.json` 的绝对路径，由主 agent 在 Step 1 解析后传入 | 主 agent |
 
 ## 工作流程
@@ -91,6 +92,7 @@ build: |
 - 使用 `scripts/generate-linglong-yaml.py` 辅助生成
 - 使用 `scripts/validate-linglong-yaml.py` 验证生成结果格式
 - `${PREFIX} 安装目录约束`：`build:` 字段中所有安装目录路径必须使用 `${PREFIX}`（大写）而非硬编码的 `/usr`。脚本 `generate-linglong-yaml.py` 会自动将 `${prefix}`（小写）替换为 `${PREFIX}`，并通过正则匹配将常见硬编码路径（如 `-DCMAKE_INSTALL_PREFIX=/usr`、`DESTDIR=/usr`、`--prefix=/usr`、`PREFIX=/usr/local` 等）替换为 `${PREFIX}`，作为 LLM 生成的 `build_section` 的安全网层
+- `Build 段黑名单约束`：`build:` 字段中 `DESTDIR=<value>` 仅允许出现在 `make` 工程中。对于 `cmake`/`meson`/`autotools`/`unknown` 类型，`DESTDIR=` 与 `--prefix`/`-DCMAKE_INSTALL_PREFIX` 重复指定会导致安装目录错误嵌套（如 `${PREFIX}${PREFIX}`）。脚本通过 `build-section-blacklist.yaml` 黑名单机制，在生成阶段和校验阶段双重检测此约束。调用方需通过 `--build-tool` 参数传入 `detect-tool` 检测到的工具类型。
 
 ## 默认值配置 (`skills/config/linglong-defaults.json`)
 
