@@ -122,6 +122,8 @@
 │   └── src2linyaps.source.analyze-args/      # [子 Skill] 编译参数提取
 │       ├── SKILL.md
 │       └── scripts/extract-build-args.py
+│   └── src2linyaps.debug/                    # [调试 Skill] 独立调试入口（user-invocable: true）
+│       └── SKILL.md
 ├── .opencode/skills/                         # 符号链接 → ../../skills/*
 ├── agent-config.json                         # 全局配置
 └── tests/
@@ -212,7 +214,7 @@ bash tests/test-mismatch.sh
 |------|------|
 | 多包合并 | 所有 Package 条目合并去重到单一输出，不区分主包和 common-data |
 | 依赖检测 | `DEBIAN_FRONTEND=noninteractive apt-get build-dep --dry-run`，不实际安装 |
-| 子 Skill 可见性 | 全部 `user-invocable: false`，仅由 Agent 编排调用 |
+| 子 Skill 可见性 | 全部 `user-invocable: false`，仅由 Agent 编排调用（例外：`src2linyaps.debug` 为 `user-invocable: true` 独立调试入口） |
 | 构建参数提取 | 优先从 `debian/rules` override 段提取自定义值，否则使用默认值 |
 | 资源扫描 | 合并所有 `*.install` / `*.links` / `*.docs` / `*.manpages` 文件，去重 |
 | 运行时依赖过滤 | `resolve-runtime-deps.py` 支持 `--blacklist` 参数，从 JSON 文件加载黑名单包名，过滤编译器（gcc/clang/llvm 等）和 GPU 驱动（mesa/libgl 等）避免写入 `runtimeDepends` |

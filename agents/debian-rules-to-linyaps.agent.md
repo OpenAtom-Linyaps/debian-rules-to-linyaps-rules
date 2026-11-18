@@ -25,6 +25,9 @@ skills:
   - id: src2linyaps.source.analyze-args
     path: skills/src2linyaps.source.analyze-args/SKILL.md
     type: sub
+  - id: src2linyaps.debug
+    path: skills/src2linyaps.debug/SKILL.md
+    type: sub
 ---
 
 # debian-rules-to-linyaps — 主 Agent
@@ -148,10 +151,11 @@ skills:
 | src2linyaps.debian.build-res-generate | `skills/src2linyaps.debian.build-res-generate/` | `scripts/generate-linglong-yaml.py` | `linglong.yaml` |
 | src2linyaps.source.detect-tool | `skills/src2linyaps.source.detect-tool/` | `scripts/detect-build-tool.sh` | tool_type YAML |
 | src2linyaps.source.analyze-args | `skills/src2linyaps.source.analyze-args/` | `scripts/extract-build-args.py` | build_args YAML |
+| src2linyaps.debug | `skills/src2linyaps.debug/` | —（纯分析，复用各 skill 脚本） | 修复报告 |
 
 **调用约定**：所有脚本调用使用相对于 workspace 根目录的路径，**不要**使用 `cd` 切换工作目录后再执行。
 
-**用户不可独立调用**：所有子 skill 设置为 `user-invocable: false`，只能通过 agent 工作流间接使用。
+**用户不可独立调用**：除 `src2linyaps.debug`（`user-invocable: true`，独立调试入口）外，所有子 skill 设置为 `user-invocable: false`，只能通过 agent 工作流间接使用。
 
 ## Workspace 根目录检测
 
@@ -188,6 +192,7 @@ skill({ name: "src2linyaps.debian.analyze-rules" })
 skill({ name: "src2linyaps.debian.build-res-generate" })
 skill({ name: "src2linyaps.source.detect-tool" })
 skill({ name: "src2linyaps.source.analyze-args" })
+skill({ name: "src2linyaps.debug" })
 ```
 
 ### 其他客户端 / Fallback
