@@ -98,6 +98,9 @@ skills:
 4. **禁止**将 `${tag}` 原样传递给任何 bash 命令、mkdir、curl 或其他工具
 
 ## 约束条件
+## 任务身份契约
+
+从平台 handoff 捕获 `Your assigned issue ID: <UUID>`（或通过 `multica issue get <UUID> --output json`），严格接受小写 UUID，并导出为 `MULTICA_ISSUE_TASK_ID`。所有 `linyaps-src-init-dispatch` 调用必须传入同一 `issue_id`；身份缺失、格式错误或不一致时 blocked，禁止从列表首项推断。
 
 ### Version 字段约束
 - `package.version` 从 `debian/changelog` 提取 baseline 版本号

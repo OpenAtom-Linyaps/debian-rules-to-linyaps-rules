@@ -159,6 +159,10 @@ Git 提交成功后，向 `linyaps-packer-*` 智能体发起打包指派。
 
 ## 精确 UUID 约束（重要）
 
+## Issue 68 安全契约
+
+当前任务唯一身份是 `issue_id`/`MULTICA_ISSUE_TASK_ID` 的小写 UUID。禁止使用 `multica issue list --limit 1`、历史评论或目录推断。所有评论与指派必须经过 UUID 和任务字段门控；失败统一输出 `blocked`/`blocked_reason`，不得产生副作用。
+
 **Issue 62 修复后，issue 与 agent 双端一律以精确 UUID 管理，禁止模糊匹配。**
 
 - **issue id**：一律使用 `multica issue list --output json` 的 `id`（UUID，形如 `d3eab8d0-6295-4ee8-916a-1822b4e57aa3`）。**禁止** `issue-\d+` 正则、数字、`identifier`(`LIN-xxxx`) 作为 issue 标识——平台不返回这些文本，正则永不命中。
