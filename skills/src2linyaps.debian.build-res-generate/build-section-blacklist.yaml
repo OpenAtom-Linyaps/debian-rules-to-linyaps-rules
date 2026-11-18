@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 
 # 构建段黑名单 — 按构建工具类型禁止 build 字段中出现的词
+#
+# 【已弃用】请使用 referance/common-building-rules.yaml 的 forbidden 字段替代。
+# 本文件保留用于向后兼容，新代码应统一通过 common-building-rules.yaml 管理。
+#
 # DESTDIR 只允许出现在 make 工程中；cmake/meson/autotools 使用
 # --prefix / -DCMAKE_INSTALL_PREFIX 配置安装路径，同时使用 DESTDIR
 # 会导致安装目录错误嵌套（如 ${PREFIX}${PREFIX}）。

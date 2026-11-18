@@ -14,14 +14,14 @@ generate-linglong-yaml.py — 基于 analyze-control 输出的依赖信息 + ana
         [--base <base>] \\
         [--runtime <runtime>] \\
         [--command <cmd>] \\
-        [--build-tool <tool>] \\
-        [--blacklist <path>]
-
-取值优先级: CLI 显式参数 > defaults JSON > 硬编码默认值
-
---build-tool: 构建工具类型 (cmake/meson/make/autotools/unknown)，由 detect-tool 提供
---blacklist:  build-section-blacklist.yaml 路径，默认自动定位到 skill 目录
-"""
+[--build-tool <tool>] \\
+         [--reference <path>]
+ 
+ 取值优先级: CLI 显式参数 > defaults JSON > 硬编码默认值
+ 
+ --build-tool: 构建工具类型 (cmake/meson/make/autotools/unknown)，由 detect-tool 提供
+ --reference:  referance/common-building-rules.yaml 路径，默认自动定位到 skill 目录
+ """
 
 import argparse
 import json
@@ -134,6 +134,68 @@ def check_blacklist(build_section, build_tool, blacklist):
     return errors
 
 
+def load_reference(path=None):
+    if path is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, '..', 'referance', 'common-building-rules.yaml')
+    if not os.path.isfile(path):
+        return None
+    with open(path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+
+def _split_commands(text):
+    text = re.sub(r'\\\n', ' ', text)
+    parts = re.split(r'&&|;|\|\||\n', text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _matches_command_def(cmd_def, commands):
+    if 'one_of' in cmd_def:
+        for alt in cmd_def['one_of']:
+            patterns = alt.get('patterns', [])
+            exclude = alt.get('exclude', [])
+            for cmd in commands:
+                if all(p in cmd for p in patterns):
+                    if not any(e in cmd for e in exclude):
+                        return True
+        return False
+    patterns = cmd_def.get('patterns', [])
+    exclude = cmd_def.get('exclude', [])
+    for cmd in commands:
+        if all(p in cmd for p in patterns):
+            if not any(e in cmd for e in exclude):
+                return True
+    return False
+
+
+def check_against_reference(build_section, build_tool, reference):
+    if reference is None:
+        return [], []
+    tool_ref = reference.get('tools', {}).get(build_tool, {})
+    if not tool_ref:
+        return [], []
+    commands = _split_commands(build_section)
+    warnings = []
+    for cmd_def in tool_ref.get('commands', []):
+        if not _matches_command_def(cmd_def, commands):
+            warnings.append(
+                f"build section: missing required command '{cmd_def['description']}'"
+            )
+    errors = []
+    for fb in tool_ref.get('forbidden', []):
+        fb_patterns = fb.get('patterns', [])
+        if not fb_patterns:
+            continue
+        for cmd in commands:
+            if all(p in cmd for p in fb_patterns):
+                errors.append(
+                    f"build section contains forbidden pattern: {fb['description']}"
+                )
+                break
+    return warnings, errors
+
+
 def build_yaml(data, build_section, version, architecture, base, runtime, command, with_deps):
     pkg_name = data.get('pkgName', '') or ''
     description = data.get('pkgDescription', '') or ''
@@ -194,8 +256,8 @@ def main():
     parser.add_argument('--build-tool', default='unknown',
                         choices=['cmake', 'meson', 'make', 'autotools', 'unknown'],
                         help='build tool type (from detect-tool)')
-    parser.add_argument('--blacklist', default='',
-                        help='path to build-section-blacklist.yaml')
+    parser.add_argument('--reference', default='',
+                        help='path to referance/common-building-rules.yaml')
     args = parser.parse_args()
 
     control_info = read_yaml(args.control_info)
@@ -214,13 +276,15 @@ def main():
     command = get_value(args.command, defaults.get('command', 'bash'))
     build_section = args.build_section if args.build_section else defaults.get('build_section_fallback', '')
 
-    # Blacklist check
-    blacklist = load_blacklist(args.blacklist if args.blacklist else None)
-    if blacklist:
-        bl_errors = check_blacklist(build_section, args.build_tool, blacklist)
-        if bl_errors:
-            for err in bl_errors:
-                print(f"ERROR: {err}", file=sys.stderr)
+    # Reference check (required commands + forbidden patterns)
+    reference = load_reference(args.reference if args.reference else None)
+    if reference:
+        warnings, errors = check_against_reference(build_section, args.build_tool, reference)
+        for w in warnings:
+            print(f"  [warn] {w}", file=sys.stderr)
+        if errors:
+            for e in errors:
+                print(f"ERROR: {e}", file=sys.stderr)
             sys.exit(1)
 
     result = build_yaml(control_info, build_section, version, architecture, base, runtime, command, with_deps)

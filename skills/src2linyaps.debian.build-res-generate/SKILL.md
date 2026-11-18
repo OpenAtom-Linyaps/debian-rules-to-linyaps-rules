@@ -38,7 +38,8 @@ user-invocable: false
 3. 加载 `skills/config/linglong-defaults.json` 获取默认值
 4. 按优先级解析各字段：CLI 参数 > defaults JSON > 硬编码默认值
 5. 对 `buildDepends` 剥离版本约束（`cmake (>= 3.16~)` → `cmake`）
-6. 构建完整 YAML 结构并写入输出文件
+6. 对 `build_section` 执行参考检查（必需命令是否存在、禁用参数是否出现），缺失命令打印 `[warn]`，禁用参数阻断流程
+7. 构建完整 YAML 结构并写入输出文件
 
 ## 输出
 
@@ -92,7 +93,10 @@ build: |
 - 使用 `scripts/generate-linglong-yaml.py` 辅助生成
 - 使用 `scripts/validate-linglong-yaml.py` 验证生成结果格式
 - `${PREFIX} 安装目录约束`：`build:` 字段中所有安装目录路径必须使用 `${PREFIX}`（大写）而非硬编码的 `/usr`。脚本 `generate-linglong-yaml.py` 会自动将 `${prefix}`（小写）替换为 `${PREFIX}`，并通过正则匹配将常见硬编码路径（如 `-DCMAKE_INSTALL_PREFIX=/usr`、`DESTDIR=/usr`、`--prefix=/usr`、`PREFIX=/usr/local` 等）替换为 `${PREFIX}`，作为 LLM 生成的 `build_section` 的安全网层
-- `Build 段黑名单约束`：`build:` 字段中 `DESTDIR=<value>` 仅允许出现在 `make` 工程中。对于 `cmake`/`meson`/`autotools`/`unknown` 类型，`DESTDIR=` 与 `--prefix`/`-DCMAKE_INSTALL_PREFIX` 重复指定会导致安装目录错误嵌套（如 `${PREFIX}${PREFIX}`）。脚本通过 `build-section-blacklist.yaml` 黑名单机制，在生成阶段和校验阶段双重检测此约束。调用方需通过 `--build-tool` 参数传入 `detect-tool` 检测到的工具类型。
+- `Build 段参考约束`：脚本通过 `referance/common-building-rules.yaml` 对 build 段进行双重检查：
+  - **必需命令检查**：build 段必须包含该工具类型的规范构建命令（如 cmake 需有 `cmake ... -DCMAKE_INSTALL_PREFIX=...`、构建命令、安装命令）。缺失命令打印 `[warn]` 提示，不阻断流程。支持 `one_of` 多选匹配（如 cmake 构建可用 `make`/`ninja`/`cmake --build`）。
+  - **禁用参数检查**：build 段禁止出现黑名单参数（如 cmake 工程中的 `DESTDIR=`）。检测到禁用参数时打印 `ERROR` 并阻断流程（exit 1）。
+  - **命令拆分规则**：先合并 `\` 续行，再按 `&&`/`;`/`||`/`\n` 拆分为独立命令，逐条匹配。`make && make install` 与 `make` + `make install` 分行两种写法均可正确识别。
 
 ## 默认值配置 (`skills/config/linglong-defaults.json`)
 

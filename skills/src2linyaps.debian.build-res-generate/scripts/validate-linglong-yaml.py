@@ -13,10 +13,10 @@ validate-linglong-yaml.py — 检测生成的 linglong.yaml 格式化与字段�
   - 无 sources 段（按约束）
   - build_depends 条目无版本约束残留
   - 无非法字段（基于 skills/config/linglong-schema.yaml 约束）
-  - build 段黑名单检查（基于 --build-tool 和 build-section-blacklist.yaml）
-
-用法:
-    python3 validate-linglong-yaml.py <path> [--schema <path>] [--build-tool <tool>]
+- build 段参考检查 + 禁用参数检查（基于 --build-tool 和 referance/common-building-rules.yaml）
+ 
+ 用法:
+     python3 validate-linglong-yaml.py <path> [--schema <path>] [--build-tool <tool>] [--reference <path>]
 
 退出码: 0 = 通过, 1 = 失败
 """
@@ -99,7 +99,69 @@ def check_blacklist(build_section, build_tool, blacklist):
     return errors
 
 
-def validate(path: str, schema_path: str = "", build_tool: str = "unknown") -> list:
+def load_reference(path=None):
+    if path is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, '..', 'referance', 'common-building-rules.yaml')
+    if not os.path.isfile(path):
+        return None
+    with open(path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+
+def _split_commands(text):
+    text = re.sub(r'\\\n', ' ', text)
+    parts = re.split(r'&&|;|\|\||\n', text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _matches_command_def(cmd_def, commands):
+    if 'one_of' in cmd_def:
+        for alt in cmd_def['one_of']:
+            patterns = alt.get('patterns', [])
+            exclude = alt.get('exclude', [])
+            for cmd in commands:
+                if all(p in cmd for p in patterns):
+                    if not any(e in cmd for e in exclude):
+                        return True
+        return False
+    patterns = cmd_def.get('patterns', [])
+    exclude = cmd_def.get('exclude', [])
+    for cmd in commands:
+        if all(p in cmd for p in patterns):
+            if not any(e in cmd for e in exclude):
+                return True
+    return False
+
+
+def check_against_reference(build_section, build_tool, reference):
+    if reference is None:
+        return [], []
+    tool_ref = reference.get('tools', {}).get(build_tool, {})
+    if not tool_ref:
+        return [], []
+    commands = _split_commands(build_section)
+    warnings = []
+    for cmd_def in tool_ref.get('commands', []):
+        if not _matches_command_def(cmd_def, commands):
+            warnings.append(
+                f"build section: missing required command '{cmd_def['description']}'"
+            )
+    errors = []
+    for fb in tool_ref.get('forbidden', []):
+        fb_patterns = fb.get('patterns', [])
+        if not fb_patterns:
+            continue
+        for cmd in commands:
+            if all(p in cmd for p in fb_patterns):
+                errors.append(
+                    f"build section contains forbidden pattern: {fb['description']}"
+                )
+                break
+    return warnings, errors
+
+
+def validate(path: str, schema_path: str = "", build_tool: str = "unknown", reference=None) -> list:
     errors = []
 
     # 1. Parse YAML
@@ -196,10 +258,11 @@ def validate(path: str, schema_path: str = "", build_tool: str = "unknown") -> l
             if m:
                 errors.append(HARDCODED_PREFIX.format(match=display))
 
-        # 8b. Check for blacklisted words based on build tool type
-        blacklist = load_blacklist()
-        if blacklist:
-            errors.extend(check_blacklist(build_val, build_tool, blacklist))
+        # 8b. Check against reference (required commands + forbidden patterns)
+        ref_warnings, ref_errors = check_against_reference(build_val, build_tool, reference)
+        for w in ref_warnings:
+            print(f"  [warn] {w}", file=sys.stderr)
+        errors.extend(ref_errors)
 
     # 9. No sources section
     if 'sources' in data:
@@ -236,11 +299,15 @@ def main():
     parser.add_argument('--build-tool', default='unknown',
                         choices=['cmake', 'meson', 'make', 'autotools', 'unknown'],
                         help='build tool type (from detect-tool)')
+    parser.add_argument('--reference', default='',
+                        help='path to referance/common-building-rules.yaml')
     args = parser.parse_args()
 
     schema_path = args.schema or default_schema_path()
+    reference_path = args.reference or ''
+    reference = load_reference(reference_path if reference_path else None)
 
-    errors = validate(args.path, schema_path, args.build_tool)
+    errors = validate(args.path, schema_path, args.build_tool, reference)
 
     if errors:
         print(f"FAIL: {len(errors)} issue(s) found", file=sys.stderr)
