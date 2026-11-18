@@ -55,7 +55,8 @@ UUID_RE='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 is_uuid() { [[ "$1" =~ $UUID_RE ]]; }
 json_reason() { python3 -c 'import json,sys; print(json.dumps({"assigned":False,"blocked":True,"blocked_reason":sys.argv[1]}))' "$1"; }
 get_issue_id() {
-  local env_id="${MULTICA_ISSUE_TASK_ID:-}" id="${env_id:-$ISSUE_ID_ARG}"
+  local env_id="${MULTICA_ISSUE_TASK_ID:-}"
+  local id="${env_id:-$ISSUE_ID_ARG}"
   [[ -n "$ISSUE_ID_ARG" && -n "$env_id" && "$ISSUE_ID_ARG" != "$env_id" ]] && return 3
   [[ -n "$id" ]] && is_uuid "$id" || return 4
   printf '%s\n' "$id"
@@ -74,15 +75,15 @@ except Exception: print('[]')
 PY
 )
   PLATFORM_JSON=$(multica agent list --output json 2>/dev/null) || { output_json "$(json_reason agent_list_failed)"; exit 0; }
-  CANDIDATES=$(python3 - "$AGENTS_JSON" "$PLATFORM_JSON" <<'PY'
+  CANDIDATES=$(printf '%s\n%s\n' "$AGENTS_JSON" "$PLATFORM_JSON" | python3 -c '
 import json,sys
-cfg=json.loads(sys.argv[1]); raw=json.loads(sys.argv[2]); agents=raw.get('agents',raw) if isinstance(raw,dict) else raw
-byname={a.get('name'):a for a in agents}
+lines=sys.stdin.read().split("\n",1)
+cfg=json.loads(lines[0]); raw=json.loads(lines[1]); agents=raw.get("agents",raw) if isinstance(raw,dict) else raw
+byname={a.get("name"):a for a in agents}
 for c in cfg:
- a=byname.get(c.get('name'))
- if a and isinstance(a.get('id'),str): print(json.dumps({'name':c.get('name',''),'id':a['id'],'status':a.get('status','unknown')}))
-PY
-)
+ a=byname.get(c.get("name"))
+ if a and isinstance(a.get("id"),str): print(json.dumps({"name":c.get("name",""),"id":a["id"],"status":a.get("status","unknown")}))
+')
   SELECTED_NAME=""; SELECTED_UUID=""; SELECTED_STATUS="unknown"; FALLBACK=""
   while IFS= read -r row; do
     [[ -z "$row" ]] && continue
