@@ -10,7 +10,7 @@ user-invocable: false
 
 解析 `debian/control` 中的字段，提取项目基本信息：
 - `Source:` → 源码包名 (`pkgName`)
-- `Build-Depends:` / `Build-Depends-Arch:` / `Build-Depends-Indep:` → 构建依赖列表（并集去重）
+- `Build-Depends:` / `Build-Depends-Arch:` / `Build-Depends-Indep:` → 构建依赖列表（并集去重），处理 `|`（或）语法，`buildDepends` 中取每个 or-group 的第一个选项，`buildDependsAlternatives` 中保留完整替代组
 - `Description:` → 项目描述
 - 所有 `Package:` 条目名称
 - 基于 apt 仓库解析 Build-Depends 各包的运行时依赖 → `runtimeDepends`
@@ -52,7 +52,11 @@ buildDepends:
   - dh-sequence-kf6
   - cmake (>= 3.16~)
   - extra-cmake-modules
+  - libjack-jackd2-dev
   - ...
+buildDependsAlternatives:  # 或语法替代组，每组中任一包可用即可
+  - - libjack-jackd2-dev
+    - libjack-dev
 runtimeDepends:        # 基于 apt 仓库解析的运行时依赖
   - libc6
   - libcurl4
@@ -76,3 +80,4 @@ binaryPackages:
 - 运行时依赖通过 `LC_ALL=C apt-cache depends` 查询，需要系统已配置 apt 仓库
 - 若 `apt-cache` 不可用或查询失败，`runtimeDepends` 输出空列表（不影响主流程）
 - 支持黑名单机制：`runtime-depends-blacklist.json` 中列出的包名会被从 `runtimeDepends` 中剔除，避免编译器、Mesa 驱动等非应用核心组件被错误写入
+- `buildDependsAlternatives` 中的每个替代组表示一组可互换的包（Debian `|` 语法），`buildDepends` 中已包含每组第一个选项。LLM 应根据实际情况选择最适合的选项写入最终配置，例如优先选择在 apt 源中可用的包，或选择与项目架构更匹配的包
