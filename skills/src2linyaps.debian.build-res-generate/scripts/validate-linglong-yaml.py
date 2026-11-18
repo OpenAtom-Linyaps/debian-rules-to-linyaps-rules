@@ -13,7 +13,7 @@ validate-linglong-yaml.py — 检测生成的 linglong.yaml 格式化与字段�
   - 无 sources 段（按约束）
   - build_depends 条目无版本约束残留
   - 无非法字段（基于 skills/config/linglong-schema.yaml 约束）
-- build 段参考检查 + 禁用参数检查（基于 --build-tool 和 referance/common-building-rules.yaml）
+- build 段参考检查 + 禁用参数检查（基于 --build-tool 和 reference/common-building-rules.yaml）
  
  用法:
      python3 validate-linglong-yaml.py <path> [--schema <path>] [--build-tool <tool>] [--reference <path>]
@@ -98,13 +98,17 @@ def check_blacklist(build_section, build_tool, blacklist):
         pattern = re.compile(rf'{re.escape(word)}=\S+')
         if pattern.search(build_section):
             errors.append(BLACKLIST_VIOLATION.format(word=word, build_tool=build_tool))
+            errors.append(
+                f"  [fix] 移除 build 段的 '{word}=<value>'（仅 make 类型允许），"
+                f"改用 --prefix / -DCMAKE_INSTALL_PREFIX=${PREFIX} 配置安装目录"
+            )
     return errors
 
 
 def load_reference(path=None):
     if path is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(script_dir, '..', 'referance', 'common-building-rules.yaml')
+        path = os.path.join(script_dir, '..', 'reference', 'common-building-rules.yaml')
     if not os.path.isfile(path):
         return None
     with open(path, 'r', encoding='utf-8') as f:
@@ -195,6 +199,14 @@ def validate(path: str, schema_path: str = "", build_tool: str = "unknown", refe
     ver = data.get('version')
     if not isinstance(ver, str) or not ver:
         errors.append(f"{VERSION_MUST_BE_STR} (got {type(ver).__name__}: {ver!r})")
+    elif not re.fullmatch(r'\d+(\.\d+){3}', ver):
+        errors.append(
+            f"field 'version' must be 4 numeric segments (MAJOR.MINOR.PATCH.REV), got {ver!r}; "
+            "excluding epoch prefix and {+dfsg,~rc,-rev} suffixes, e.g. '30.2.3+dfsg-3deepin1' -> '30.2.3.0'"
+        )
+        errors.append(
+            f"  [fix] 版本格式由 generate-linglong-yaml.py 自动归一化，建议重新生成而非手工 edit"
+        )
 
     # 5. package section
     pkg = data.get('package')
@@ -259,6 +271,11 @@ def validate(path: str, schema_path: str = "", build_tool: str = "unknown", refe
             m = re.search(pattern, build_val)
             if m:
                 errors.append(HARDCODED_PREFIX.format(match=display))
+                errors.append(
+                    f"  [fix] {display} 命中：安装到 ${{PREFIX}}，可用 "
+                    "`sed -E 's#(prefix|PREFIX|INSTALL_ROOT|DESTDIR)=/[^ ]*#\\1=${PREFIX}#g'` "
+                    "或 regenerate 的 build_section 修正"
+                )
 
         # 8b. Check against reference (required commands + forbidden patterns)
         ref_warnings, ref_errors = check_against_reference(build_val, build_tool, reference)
@@ -302,7 +319,7 @@ def main():
                         choices=['cmake', 'meson', 'make', 'autotools', 'unknown'],
                         help='build tool type (from detect-tool)')
     parser.add_argument('--reference', default='',
-                        help='path to referance/common-building-rules.yaml')
+                        help='path to reference/common-building-rules.yaml')
     args = parser.parse_args()
 
     schema_path = args.schema or default_schema_path()

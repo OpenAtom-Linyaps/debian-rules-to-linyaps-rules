@@ -156,7 +156,7 @@
 
 ### Multica 版配置
 
-`for-multica/agent.md` 顶部声明 `AGENT_CONFIG_PATH` 变量指向 `for-multica/agent-config.json`，所有下游 skill 通过 `agent_config_path` 参数接收该路径，集中管理配置入口。改路径只需修改 `agent.md` 顶部一行声明。`agent-config.json` 包含 `global`、`extension`、`assignment` 三个区段。
+`for-multica/agent.md` 顶部声明 `AGENT_CONFIG_PATH` 变量指向 `for-multica/agent-config.json`。**该路径只传给需要读取配置内容的 SKILL**（`linyaps-git-workflow`、`linyaps-src-init-dispatch`、`src2linyaps.debug`）；其余 `src2linyaps.*` skill 不接收 `agent_config_path`，而是复用 agent 在 Step 1 解析好的已解析字段（`defaults_path`/`schema_path`/`patterns_path`/`control_schema_path`）。`agent-config.json` 包含 `global`、`extension`、`assignment` 三个区段。
 
 ## 输出格式
 
@@ -229,7 +229,7 @@ bash tests/test-mismatch.sh
 
 | 文件 | 说明 |
 |------|------|
-| `for-multica/agent.md` | Multica 工作流 agent（声明 `AGENT_CONFIG_PATH` 变量，注入 `agent_config_path` 参数给所有下游 skill） |
+| `for-multica/agent.md` | Multica 工作流 agent（声明 `AGENT_CONFIG_PATH` 变量，仅向需读配置的 skill 注入 `agent_config_path`，其余 skill 复用解析后的已解析字段） |
 | `for-multica/agent-config.json` | Multica 配置（含 `projects_repo`、`workspace`、`assignment` 等） |
 | `for-multica/scripts/check-agent-status.sh` | Agent 状态查询脚本（热备方案） |
 

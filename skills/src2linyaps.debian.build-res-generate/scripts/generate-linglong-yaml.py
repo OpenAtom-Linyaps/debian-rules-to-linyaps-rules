@@ -20,7 +20,7 @@ generate-linglong-yaml.py — 基于 analyze-control 输出的依赖信息 + ana
  取值优先级: CLI 显式参数 > defaults JSON > 硬编码默认值
  
  --build-tool: 构建工具类型 (cmake/meson/make/autotools/unknown)，由 detect-tool 提供
- --reference:  referance/common-building-rules.yaml 路径，默认自动定位到 skill 目录
+ --reference:  reference/common-building-rules.yaml 路径，默认自动定位到 skill 目录
  """
 
 import argparse
@@ -78,6 +78,25 @@ def read_json(path: str) -> dict:
 
 def get_value(cli_val, default_val):
     return cli_val if cli_val is not None else default_val
+
+
+def normalize_version(version: str) -> str:
+    """将任意 Debian 版本号归一化为玲珑要求的纯数字 4 段格式 MAJOR.MINOR.PATCH.REV。
+
+    - 取前 4 个纯数字段，缺失段补 0；
+    - 忽略非数字尾部（如 +dfsg、~rc、-3deepin1）及 epoch 前缀（如 `1:`、`4:`）；
+    - 示例：'30.2.3+dfsg-3deepin1' → '30.2.3.0'，
+            '1:2.3~rc' → '2.3.0.0'，
+            '4:25.04.3-2deepin1' → '25.04.3.0'。
+    """
+    if not version:
+        return version
+    no_epoch = re.sub(r'^\d+:', '', version)
+    m = re.match(r'\d+(?:\.\d+)*', no_epoch)
+    core = m.group(0) if m else ''
+    segments = core.split('.') if core else []
+    normalized = (segments[:4] + ['0', '0', '0', '0'])[:4]
+    return '.'.join(normalized)
 
 
 def add_section_breaks(yaml_str: str) -> str:
@@ -140,7 +159,7 @@ def check_blacklist(build_section, build_tool, blacklist):
 def load_reference(path=None):
     if path is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(script_dir, '..', 'referance', 'common-building-rules.yaml')
+        path = os.path.join(script_dir, '..', 'reference', 'common-building-rules.yaml')
     if not os.path.isfile(path):
         return None
     with open(path, 'r', encoding='utf-8') as f:
@@ -364,7 +383,7 @@ def main():
     parser.add_argument('--extra-args', default='',
                         help='extra configure args from LLM semantic analysis (e.g. "--enable-qt --enable-dbus")')
     parser.add_argument('--reference', default='',
-                        help='path to referance/common-building-rules.yaml')
+                        help='path to reference/common-building-rules.yaml')
     args = parser.parse_args()
 
     control_info = read_yaml(args.control_info)
@@ -377,6 +396,7 @@ def main():
     with_deps = bool(build_depends_raw)
 
     version = get_value(args.package_version, defaults.get('version', '0.0.0.1'))
+    version = normalize_version(version)
     architecture = get_value(args.architecture, defaults.get('architecture', 'x86_64'))
     base = get_value(args.base, defaults.get('base', ''))
     runtime = get_value(args.runtime, defaults.get('runtime', ''))

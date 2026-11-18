@@ -7,6 +7,9 @@ tools:
 permission:
   skill: { "*": "allow" }
 skills:
+  - id: src2linyaps.constraints
+    path: skills/src2linyaps.constraints/SKILL.md
+    type: sub
   - id: src2linyaps.debian.test-deps
     path: skills/src2linyaps.debian.test-deps/SKILL.md
     type: sub
@@ -151,6 +154,7 @@ skills:
 
 | Skill | 路径 | 核心脚本 | 输出 |
 |-------|------|---------|------|
+| src2linyaps.constraints | `skills/src2linyaps.constraints/` | —（仅约束契约，由 agent 载入） | 共享构建/校验约束 |
 | src2linyaps.debian.test-deps | `skills/src2linyaps.debian.test-deps/` | `scripts/test-build-deps.sh` | 依赖检测 JSON |
 | src2linyaps.debian.analyze-control | `skills/src2linyaps.debian.analyze-control/` | `scripts/init-control.py` | control + runtime YAML |
 | src2linyaps.debian.analyze-rules | `skills/src2linyaps.debian.analyze-rules/` | `scripts/analyze-rules.py` | build_section YAML |
@@ -163,35 +167,18 @@ skills:
 
 **用户不可独立调用**：除 `src2linyaps.debug`（`user-invocable: true`，独立调试入口）外，所有子 skill 设置为 `user-invocable: false`，只能通过 agent 工作流间接使用。
 
-## Workspace 根目录检测
+## Workspace 根目录
 
-在查找 skills 之前，**必须先确认 workspace 根目录**。LLM 的工作目录可能不是 workspace 根目录，导致相对路径全部失效。
+skills 路径已由平台固定为 `./skills/<name>/SKILL.md`（相对于 workspace 根目录），**无需搜索或遍历**。
 
-### 检测方法（按顺序执行）
+- 根目录为包含 `skills/` 和 `agents/` 目录的位置，记为 `WORKSPACE_ROOT`，所有脚本调用使用相对 `WORKSPACE_ROOT` 的路径。
 
-1. **检查当前目录**：若包含 `skills/` 和 `agents/` 目录，即为 workspace 根目录
-2. **向上遍历父目录**：最多 5 层，查找包含 `skills/` 和 `agents/` 的目录
-3. **客户端目录搜索**：在已声明的客户端配置目录中搜索
+## Skills 加载
 
-### 检测命令
-
-```bash
-# 方法1: 检查当前目录
-[ -d "skills" ] && [ -d "agents" ] && echo "Workspace root: $(pwd)"
-
-# 方法2: 向上查找（最多5层）
-current=$(pwd); for i in $(seq 1 5); do [ -d "$current/skills" ] && [ -d "$current/agents" ] && echo "Workspace root: $current" && break; current=$(dirname "$current"); done
-```
-
-**确认后**：所有后续路径都基于此 workspace 根目录。将根目录路径记为 `WORKSPACE_ROOT`，后续所有脚本调用使用 `$WORKSPACE_ROOT/skills/...` 或相对路径。
-
-## Skills 查找策略
-
-### OpenCode 环境（首选）
-
-直接使用内置 `skill` 工具加载：
+- **首选**：使用内置 `skill` 工具按 name 加载：
 
 ```
+skill({ name: "src2linyaps.constraints" })
 skill({ name: "src2linyaps.debian.test-deps" })
 skill({ name: "src2linyaps.debian.analyze-control" })
 skill({ name: "src2linyaps.debian.analyze-rules" })
@@ -201,9 +188,7 @@ skill({ name: "src2linyaps.source.analyze-args" })
 skill({ name: "src2linyaps.debug" })
 ```
 
-### 其他客户端 / Fallback
-
-直接读取 `skills/*/SKILL.md` 文件（相对于 workspace 根目录）：
+- **Fallback**（`skill()` 工具不可用时）：直接读取固定路径 `skills/<name>/SKILL.md`：
 
 ```bash
 cat skills/src2linyaps.debian.test-deps/SKILL.md
@@ -234,6 +219,18 @@ cat skills/src2linyaps.debian.analyze-control/SKILL.md
 1. 验证 workspace 根目录是否包含 `skills/` 和 `agents/` 目录
 2. 创建输出目录 `output/${tag}/`
 3. 记录开始时间和项目路径
+
+#### 1.3 载入通用约束（一次，供全局复用）
+
+在 Phase 1 末尾**一次性**载入共享约束契约，后续步骤引用其约束、**不重复展开**：
+
+```
+skill({ name: "src2linyaps.constraints" })
+```
+
+载入后在会话状态/todo 记录「约束已加载」，正文明确后续 `src2linyaps.*` 步骤遵循该 SKILL 的
+`${PREFIX}` 安装目录、DESTDIR 黑名单、多包合并、运行时依赖存在性核验、校验契约。
+若 `skill()` 不可用，读取 `skills/src2linyaps.constraints/SKILL.md` 并内联记录其约束。
 
 ### Phase 2: 路径选择
 
@@ -450,16 +447,9 @@ resources:
 
 ### 调用前确认路径
 ```bash
-# 确认 workspace 根目录（若尚未确认）
-if [ -d "skills" ] && [ -d "agents" ]; then
-    echo "Workspace root: $(pwd)"
-else
-    # 向上查找
-    current=$(pwd); for i in $(seq 1 5); do
-        [ -d "$current/skills" ] && [ -d "$current/agents" ] && echo "Workspace root: $current" && break
-        current=$(dirname "$current")
-    done
-fi
+# 确认 workspace 根目录：所在目录必须同时包含 skills/ 与 agents/
+WORKSPACE_ROOT="$(pwd)"
+# 若当前目录不是根目录，按固定约定定位（skills 位于 ./skills/<name>/SKILL.md）
 ```
 
 ### 调用 test-deps
@@ -515,4 +505,4 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-y
 2. **CSV 优先**：CSV 配置值优先于自动检测值
 3. **临时文件**：处理完成后清理临时解压目录
 4. **日志保存**：所有测试和构建日志保存到 `data/` 目录
-5. **多客户端兼容性**：若工具调用失败，先按「Workspace 根目录检测」确认根目录，再按「Skills 查找策略」逐步查找；检查是否使用了 `cd` 切换工作目录，应改用绝对路径或相对 workspace 根目录的路径
+5. **多客户端兼容性**：若工具调用失败，先按「Workspace 根目录」确认根目录，再按「Skills 加载」的 fallback 读取固定路径 `skills/<name>/SKILL.md`；检查是否使用了 `cd` 切换工作目录，应改用绝对路径或相对 workspace 根目录的路径

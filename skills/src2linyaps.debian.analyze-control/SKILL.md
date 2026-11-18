@@ -25,7 +25,6 @@ user-invocable: false
 |------|------|------|
 | control_content | string | `debian/control` 文件的完整文本内容 |
 | project_path | string | 项目源码根目录路径 |
-| agent_config_path | string | `agent-config.json` 的绝对路径，由主 agent 在 Step 1 解析后传入 |
 
 ## 工作流程
 
@@ -74,11 +73,11 @@ binaryPackages:
 
 - 一个 `debian/control` 只允许一个 `Source:` 字段
 - 可能有多个 `Package:` 条目，构建依赖取并集去重
-- 不再区分主包和 common-data，全部合并到同一个输出
+- 多包合并：所有 `Package:` 条目合并去重，不区分主包和 common-data
 - 依赖项中的版本约束（如 `(= 13)`、`(>= 3.16~)`）完整保留
 - 使用 `scripts/init-control.py` 作为统一入口（内部编排 `parse-control.py` 和 `resolve-runtime-deps.py`）
 - 运行时依赖通过 `LC_ALL=C apt-cache depends` 查询，需要系统已配置 apt 仓库
 - 若 `apt-cache` 不可用或查询失败，`runtimeDepends` 输出空列表（不影响主流程）
 - 支持黑名单机制：`runtime-depends-blacklist.json` 中列出的包名会被从 `runtimeDepends` 中剔除，避免编译器、Mesa 驱动等非应用核心组件被错误写入（辅助过滤）
-- **存在性硬校验（同源持有）**：本 skill 的 `scripts/depends.py` 提供 `package_exists()`（逐包 `apt-cache show`），`init-control.py` 在 `runtimeDepends` 写入前逐包核验；**不存在于 apt 仓库的包一律剔除，禁止写入** `depends`（Issue 55）。其他 skill 需要存在性校验时由 Agent 调用本 skill，**禁止跨 skill 直接 import 本模块**
+- **存在性硬校验（同源持有）**：遵循 `src2linyaps.constraints` **SKILL**（运行时依赖存在性核验，Issue 55）。本 skill 的 `scripts/depends.py` 提供 `package_exists()`（逐包 `apt-cache show`），`init-control.py` 在 `runtimeDepends` 写入前逐包核验；**不存在于 apt 仓库的包一律剔除**。其他 skill 需要存在性校验时由 Agent 调用本 skill，**禁止跨 skill 直接 import 本模块**
 - `buildDependsAlternatives` 中的每个替代组表示一组可互换的包（Debian `|` 语法），`buildDepends` 中已包含每组第一个选项。LLM 应根据实际情况选择最适合的选项写入最终配置，例如优先选择在 apt 源中可用的包，或选择与项目架构更匹配的包

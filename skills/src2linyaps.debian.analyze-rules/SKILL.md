@@ -25,7 +25,6 @@ user-invocable: false
 | project_path | string | 项目源码根目录路径 |
 | debian_path | string | `debian/` 目录路径 |
 | control_info | dict | `analyze-control` 输出的结构化信息 |
-| agent_config_path | string | `agent-config.json` 的绝对路径，由主 agent 在 Step 1 解析后传入 |
 
 ## 工作流程
 
@@ -98,4 +97,5 @@ extra_args: "--enable-qt --enable-dbus --enable-udev"
 - `debian/rules` 中的 override 段需完整解析
 - 如果 `debian/rules` 中无 dh 序列，尝试直接分析源码目录来推断构建工具
 - 使用 `scripts/analyze-rules.py` 辅助解析
-- `${PREFIX} 安装目录约束`：生成 `build_section` 时，所有安装目录参数（如 `-DCMAKE_INSTALL_PREFIX`、`--prefix`、`DESTDIR`）的值必须使用 `${PREFIX}` 环境变量而非硬编码路径（如 `/usr`、`/usr/local`），因为玲珑沙箱的安装根目录由运行时动态设定。脚本会同时输出 `prefix=${PREFIX}` 作为 Makefile 变量默认值。`build_args` 中从 debian/rules 提取的原始值（如 `/usr`）仅保留为参考信息
+- **版本归一化**：输出的 `baseline` 为 Debian 原始版本（如 `30.2.3+dfsg-3deepin1`）。`generate-linglong-yaml.py` 会自动归一化为纯数字 4 段（`30.2.3.0`），**agent 无需手工改动 version 过校验**
+- `${PREFIX} 安装目录约束`：生成 `build_section` 时所有安装目录参数使用 `${PREFIX}` 而非硬编码 `/usr`、`/usr/local`。`build_args` 中从 debian/rules 提取的原始值（如 `/usr`）仅保留为参考信息

@@ -14,8 +14,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPO_ROOT="$(cd "$SKILL_ROOT/../.." && pwd)"
 
 ACTION="${1:-}"
 shift || true
@@ -28,7 +26,7 @@ PROJECT_DIR=""
 ARCH=""
 WORKFLOW_TYPE=""
 DATA_DIR=""
-CONFIG_FILE="${REPO_ROOT}/for-multica/agent-config.json"
+CONFIG_FILE="${CONFIG_FILE:-}"
 SUCCESS_COUNT=0
 FAIL_COUNT=0
 AGENT_NAME=""

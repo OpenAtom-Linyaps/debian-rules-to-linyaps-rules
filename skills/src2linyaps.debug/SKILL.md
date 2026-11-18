@@ -32,7 +32,7 @@ permission:
 - 内部资源（只读复用，路径相对于 workspace 根目录）：
   - `skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-yaml.py`
   - `skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-yaml.py`
-  - `skills/src2linyaps.debian.build-res-generate/referance/common-building-rules.yaml|.md`
+  - `skills/src2linyaps.debian.build-res-generate/reference/common-building-rules.yaml|.md`
   - `skills/src2linyaps.debian.analyze-rules/scripts/analyze-rules.py`
   - `skills/config/linglong-schema.yaml`
   - `skills/config/linglong-defaults.json`
@@ -74,7 +74,7 @@ permission:
 ll-builder extract <layer_path> <workdir>
 ```
 
-- 参考：`skills/src2linyaps.debug/ll-builder.command.refence.md`（仓库根另有 `examples/ll-builder.command.refence.md` 同源副本）
+- 参考：`skills/src2linyaps.debug/ll-builder.command.reference.md`（仓库根另有 `examples/ll-builder.command.refence.md` 同源副本）
 - 解压后定位 `<workdir>/files`，即 `linglong.yaml` 声明的 `$PREFIX` 内容。
 
 ### 阶段二 · 对照分析（纯分析，不改文件）
@@ -111,7 +111,7 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-y
   --extra-args '<extra_args_string>' \
   --package-version <baseline> \
   --defaults skills/config/linglong-defaults.json \
-  --reference skills/src2linyaps.debian.build-res-generate/referance/common-building-rules.yaml \
+  --reference skills/src2linyaps.debian.build-res-generate/reference/common-building-rules.yaml \
   --output <project_path>/linglong.yaml
 ```
 
@@ -121,7 +121,7 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-y
   <project_path>/linglong.yaml \
   --schema skills/config/linglong-schema.yaml \
   --build-tool <tool_type> \
-  --reference skills/src2linyaps.debian.build-res-generate/referance/common-building-rules.yaml
+  --reference skills/src2linyaps.debian.build-res-generate/reference/common-building-rules.yaml
 ```
 - 退出码 0 → 校验通过，继续阶段四
 - 退出码非 0 → 输出错误列表，按错误修复后重新校验，直至通过或判定无法修复
@@ -148,7 +148,7 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-y
 ## 约束
 
 1. **`files/` 即 `$PREFIX`**：解压出的 `<workdir>/files` 目录就是 `linglong.yaml` 声明的安装前缀。
-2. **禁止硬编码 `/usr`**：`build:` 段所有安装目录参数必须使用 `${PREFIX}`，遵循 `${PREFIX}` 约束；校验阶段自动检测。
+2. **禁止硬编码 `/usr`**：遵循 `src2linyaps.constraints` **SKILL**（${PREFIX} 安装目录、DESTDIR 黑名单）；`build:` 段所有安装目录参数使用 `${PREFIX}`，校验阶段自动检测。
 3. **修复后必须校验**：任何改动必须通过 `validate-linglong-yaml.py` 校验，禁止跳过。
 4. **清理临时目录**：临时解压目录处理完清理。
 5. **仅调用仓库内 skills**：修复仅能调用 `skills/` 下内部 skills，禁止调用外部 skills（resource-collector / deb-analysis / linglong-fix / compat-testing 等，这些独立于本仓库 `skills/`）。
