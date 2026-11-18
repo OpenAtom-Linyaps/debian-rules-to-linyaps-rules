@@ -139,6 +139,10 @@ Git 提交成功后，向 `linyaps-packer-*` 智能体发起打包指派。
 | `linyaps-packer-1` | `linyaps_packaging` | 每个任务 Git 提交成功后 |
 | `linyaps-packer-2` | `linyaps_packaging` | 每个任务 Git 提交成功后（热备） |
 
+> **packer 本地检出目录**：packer 侧构建时读取**自己的** `agent-config.json` 中
+> `global.pack_repo_dir` 作为本地检出目录。`dispatch.sh` 不改，指派消息不携带该路径
+> （消息仅携带 `project_dir`/`arch`/`workflow_type`）。
+
 ### `assignment.default_strategy`
 
 | 场景 | handler | 说明 |

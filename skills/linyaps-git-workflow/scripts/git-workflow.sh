@@ -6,8 +6,8 @@
 #   commit_and_push — 清理工程、暂存、动态 commit message、推送
 #
 # 使用方式：
-#   bash git-workflow.sh init_repo --projects_repo=<url> --projects_root=<path>
-#   bash git-workflow.sh commit_and_push --projects_root=<path> [--data-dir=<path>]
+#   bash git-workflow.sh init_repo --projects_repo=<url> --init_repo_dir=<path>
+#   bash git-workflow.sh commit_and_push --init_repo_dir=<path> [--data-dir=<path>]
 
 set -euo pipefail
 
@@ -38,13 +38,13 @@ shift || true
 
 # 参数
 PROJECTS_REPO=""
-PROJECTS_ROOT=""
+INIT_REPO_DIR=""
 DATA_DIR=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --projects_repo=*) PROJECTS_REPO="${1#*=}" ;;
-    --projects_root=*) PROJECTS_ROOT="${1#*=}" ;;
+    --init_repo_dir=*) INIT_REPO_DIR="${1#*=}" ;;
     --data-dir=*)      DATA_DIR="${1#*=}" ;;
     *)
       echo "未知参数: $1" >&2
@@ -108,25 +108,25 @@ if [[ "$ACTION" == "init_repo" ]]; then
     echo '{"status":"blocked","error":"git_repo_not_configured"}'
     exit 0
   fi
-  if [[ -z "$PROJECTS_ROOT" ]]; then
-    PROJECTS_ROOT="./projects"
+  if [[ -z "$INIT_REPO_DIR" ]]; then
+    INIT_REPO_DIR="./projects/init"
   fi
 
   # git clone；若已存在且为 git 仓库，则改为同步而非重建
-  if [[ -d "$PROJECTS_ROOT/.git" ]]; then
-    CLONE_OUTPUT=$(cd "$PROJECTS_ROOT" && sync_upstream 2>&1) || {
+  if [[ -d "$INIT_REPO_DIR/.git" ]]; then
+    CLONE_OUTPUT=$(cd "$INIT_REPO_DIR" && sync_upstream 2>&1) || {
       echo "{\"status\":\"blocked\",\"error\":\"git_sync_failed: ${CLONE_OUTPUT}\"}"
       exit 0
     }
   else
-    CLONE_OUTPUT=$(git clone "$PROJECTS_REPO" "$PROJECTS_ROOT" 2>&1) || {
+    CLONE_OUTPUT=$(git clone "$PROJECTS_REPO" "$INIT_REPO_DIR" 2>&1) || {
       echo "{\"status\":\"blocked\",\"error\":\"git_clone_failed: ${CLONE_OUTPUT}\"}"
       exit 0
     }
   fi
 
   # 验证推送权限
-  PUSH_OUTPUT=$(cd "$PROJECTS_ROOT" && git push --dry-run 2>&1) || {
+  PUSH_OUTPUT=$(cd "$INIT_REPO_DIR" && git push --dry-run 2>&1) || {
     echo "{\"status\":\"blocked\",\"error\":\"git_permission_denied: ${PUSH_OUTPUT}\"}"
     exit 0
   }
@@ -135,23 +135,23 @@ if [[ "$ACTION" == "init_repo" ]]; then
 
 # ---- commit_and_push ----
 elif [[ "$ACTION" == "commit_and_push" ]]; then
-  if [[ -z "$PROJECTS_ROOT" ]]; then
-    echo '{"error":"缺少必填参数: --projects_root"}' >&2
+  if [[ -z "$INIT_REPO_DIR" ]]; then
+    echo '{"error":"缺少必填参数: --init_repo_dir"}' >&2
     exit 1
   fi
-  if [[ ! -d "$PROJECTS_ROOT" ]]; then
+  if [[ ! -d "$INIT_REPO_DIR" ]]; then
     echo "{\"committed\":false,\"commit_sha\":\"\",\"packages\":[]}"
     exit 0
   fi
 
-  cd "$PROJECTS_ROOT"
+  cd "$INIT_REPO_DIR"
 
   # 清理构建缓存：对每个 CI_ll_* 工程目录调用 clean_project_cache.sh，
   # 确保 linglong/、bins/、reports/、build_cache/、*.layer、*.uab、下载包等不被入库
   echo "== 清理构建缓存 =="
   while IFS= read -r -d '' proj; do
     clean_project_cache "$proj"
-  done < <(find "$PROJECTS_ROOT" -maxdepth 1 -type d -name 'CI_ll_*' -print0 2>/dev/null)
+  done < <(find "$INIT_REPO_DIR" -maxdepth 1 -type d -name 'CI_ll_*' -print0 2>/dev/null)
 
   # 推送前先与上游同步（stash -u + rebase），避免本地落后导致 push 被拒
   if ! sync_upstream; then
@@ -163,7 +163,7 @@ elif [[ "$ACTION" == "commit_and_push" ]]; then
 
   # 提交前守卫：阻止缓存被误提交
   echo "== pre-commit 守卫检查 =="
-  if ! pre_commit_guard "$PROJECTS_ROOT"; then
+  if ! pre_commit_guard "$INIT_REPO_DIR"; then
     echo "{\"committed\":false,\"commit_sha\":\"\",\"packages\":[],\"blocked\":\"pre_commit_guard\"}"
     exit 0
   fi
