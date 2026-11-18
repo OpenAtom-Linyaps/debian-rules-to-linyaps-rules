@@ -74,7 +74,7 @@ permission:
 ll-builder extract <layer_path> <workdir>
 ```
 
-- 参考：`skills/src2linyaps.debug/ll-builder.command.reference.md`（仓库根另有 `examples/ll-builder.command.refence.md` 同源副本）
+- 参考：`skills/src2linyaps.debug/ll-builder.command.reference.md`
 - 解压后定位 `<workdir>/files`，即 `linglong.yaml` 声明的 `$PREFIX` 内容。
 
 ### 阶段二 · 对照分析（纯分析，不改文件）

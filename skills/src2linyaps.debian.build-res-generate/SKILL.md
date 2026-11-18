@@ -52,6 +52,8 @@ user-invocable: false
 7. 路径规范化（`${prefix}` → `${PREFIX}`、硬编码路径替换）
 8. 追加 `touch ${PREFIX}/.linyaps_genius` 和 `chmod -R 755 ${PREFIX}`
 9. 构建完整 YAML 结构并写入输出文件
+10. 源码编译项目（build_tool ∈ cmake/meson/make/autotools）默认注入 clang：build 段前加
+    `export CC="clang"`/`export CXX="clang++"`，build_depends 加 clang/lld/ccache，depends 加 libomp5
 
 ## 输出
 
@@ -105,7 +107,13 @@ build: |
 - 使用 `scripts/generate-linglong-yaml.py` 辅助生成
 - 使用 `scripts/validate-linglong-yaml.py` 验证生成结果格式
 - **存在性校验（Issue 55）**：apt 仓库存在性校验由 `src2linyaps.debian.analyze-control` 同源持有（`depends.py`）。**Agent 在本 skill 生成 `buildext.apt.depends` 之前，应先调用 analyze-control 做存在性校验**；`runtimeDepends` 中不存在于 apt 仓库的包一律剔除，禁止写入 `depends`。本 skill 不做跨 skill 直接 import。
-- `${PREFIX} 安装目录约束`：脚本 `generate-linglong-yaml.py` 自动将 `${prefix}`（小写）替换为 `${PREFIX}`，并通过正则替换常见硬编码路径（如 `-DCMAKE_INSTALL_PREFIX=/usr`、`DESTDIR=/usr`、`--prefix=/usr`、`PREFIX=/usr/local` 等）为 `${PREFIX}`，作为 LLM 生成的 `build_section` 的安全网层
+- `${PREFIX} 安装目录约束`：脚本 `generate-linglong-yaml.py` 自动将 `${prefix}`（小写）替换为 `${PREFIX}`，并通过正则替换常见硬编码路径（如 `-DCMAKE_INSTALL_PREFIX=/usr`、`DESTDIR=/usr`、`--prefix=/usr`、`PREFIX=/usr/local` 等）为 `${PREFIX}`，作为 LLM 生成的 `build_section` 的安全网层。安装子目录规范化：二进制 → `${PREFIX}/bin`、库 → `${PREFIX}/lib`、通用资源 → `${PREFIX}/share`，生成阶段自动修正错误子目录（打印 `[normalize]`），校验阶段阻断错误子目录；映射规则定义在 `reference/common-building-rules.yaml` 的 `install_dir_mapping` 键
+- `Clang 默认编译`：源码编译项目（`build_tool` ∈ cmake/meson/make/autotools）默认使用 clang——
+  build 段最前注入 `export CC="clang"`、`export CXX="clang++"`；`buildext.apt.build_depends` 追加 `clang`/`lld`/`ccache`，
+  `depends` 追加 `libomp5`。生成/校验均参照 `reference/example-with-clang.linglong.yaml`。
+  `build_tool` 为 `unknown`（二进制拷贝 fallback）不注入 clang。
+  若用户 prompt 显式声明不用 clang 或使用 gcc 编译，主 agent 调用脚本时传 `--no-clang`
+  关闭默认注入（此时不加 export CC/CXX，也不追加 clang/lld/ccache/libomp5）。
 - `Build 段参考约束`：`reference/common-building-rules.yaml` 同时用于**生成**和**校验**：
 
   - **生成阶段**：脚本通过 `common-building-rules.yaml` 生成规范构建命令模板，注入 `build_args` 和 `extra_args` 参数，补充缺失的必选命令
@@ -128,3 +136,5 @@ build: |
 ```
 
 取值优先级: CLI 显式参数 > defaults JSON > 硬编码默认值
+
+> 上下文效率：通用规则见 `src2linyaps.constraints` SKILL §7。本 skill 特有：生成的 `linglong.yaml` 不回读全文；校验只取退出码与错误列表。

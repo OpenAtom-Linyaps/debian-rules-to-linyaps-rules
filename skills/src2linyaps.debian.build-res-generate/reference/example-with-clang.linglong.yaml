@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2023 UnionTech Software Technology Co., Ltd.
+#
+# SPDX-License-Identifier: LGPL-3.0-or-later
+
+version: "9.2.0782.0"
+
+package:
+  id: "vim"
+  name: "vim"
+  version: "9.2.0782.0"
+  kind: app
+  architecture: x86_64
+  description: "Vi IMproved - Common files"
+
+base: org.deepin.base/25.2.2
+
+runtime: org.deepin.runtime.dtk/25.2.2
+
+buildext:
+  apt:
+    build_depends:
+# added to build_depends while build with clang
+    - clang
+    - lld
+    - ccache
+# End
+    depends:
+# added to build_depends while build with clang
+    - libomp5
+# End
+
+command:
+- "gvim"
+
+build: |
+  export CC="clang"
+  export CXX="clang++"
+  ./configure --prefix=${PREFIX}
+  make -j$(nproc)
+  make install
+  touch ${PREFIX}/.linyaps_genius
+  chmod -R 755 ${PREFIX}

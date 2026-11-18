@@ -56,7 +56,7 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 # 只检查本工程目录内的暂存文件（--relative 使路径相对当前目录）
-CACHED_FILES=$(git diff --cached --name-only --relative 2>/dev/null || true)
+CACHED_FILES=$(git diff --cached --name-only --diff-filter=d --relative 2>/dev/null || true)
 
 if [[ -z "$CACHED_FILES" ]]; then
   echo "[守卫] 通过：该工程目录无暂存变更"

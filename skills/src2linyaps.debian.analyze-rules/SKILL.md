@@ -99,3 +99,5 @@ extra_args: "--enable-qt --enable-dbus --enable-udev"
 - 使用 `scripts/analyze-rules.py` 辅助解析
 - **版本归一化**：输出的 `baseline` 为 Debian 原始版本（如 `30.2.3+dfsg-3deepin1`）。`generate-linglong-yaml.py` 会自动归一化为纯数字 4 段（`30.2.3.0`），**agent 无需手工改动 version 过校验**
 - `${PREFIX} 安装目录约束`：生成 `build_section` 时所有安装目录参数使用 `${PREFIX}` 而非硬编码 `/usr`、`/usr/local`。`build_args` 中从 debian/rules 提取的原始值（如 `/usr`）仅保留为参考信息
+
+> 上下文效率：通用规则见 `src2linyaps.constraints` SKILL §7。本 skill 特有：输出含 `resources` 全量资源路径；调用方只读计数，不逐条 append。

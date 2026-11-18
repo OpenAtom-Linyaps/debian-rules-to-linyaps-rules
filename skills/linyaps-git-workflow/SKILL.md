@@ -82,7 +82,7 @@ Git 仓库克隆 + 推送权限验证。
 **执行逻辑**：
 1. **切换目录**：切换到 `init_repo_dir`
 2. **清理构建缓存**：对每个 `CI_ll_*` 工程目录调用 `scripts/clean_project_cache.sh <proj_dir>`（清理 `linglong/`、`bins/`、`reports/`、`build_cache/`、`*.layer`、`*.uab`、下载的原始套件文件等），只保留工程最小必要文件（`linglong.yaml`、`config/`）
-3. **与上游同步（sync_upstream）**：`git fetch origin` → 若本地落后远程，则 `git stash push -u`（含未跟踪文件）→ `git rebase --autostash` → `git stash pop`，保证本地与上游保持一致后再提交
+3. **与上游同步（sync_upstream）**：`git fetch origin` → 若本地落后远程，则仅当存在本地改动（含未跟踪文件）时 `git stash push -u` → `git rebase`（不用 `--autostash`）→ 仅当确已 stash 且 stash 仍存在时才 `git stash pop`，保证本地与上游保持一致后再提交
    - rebase 冲突 → 中止 rebase，返回 `blocked:rebase_conflict`，**不 push**且本地改动保留在 stash
    - stash pop 冲突 → 返回 `blocked:stash_conflict`（改动保留工作区，交人工处理），**不 push**
    - 本地已最新或 fetch 失败 → 跳过同步，继续流程
@@ -158,7 +158,7 @@ Git 仓库克隆 + 推送权限验证。
 
 1. **仅 debian-rules-to-linyaps agent 调用**
 2. **与 agent_config_path 指向的 agent-config.json 的 global.projects_repo / global.init_repo_dir 绑定**
-3. **操作 git 仓库前必须先与上游同步**：`commit_and_push` 在 `git add` 前、`init_repo` 对已存在克隆均须先 `fetch` 并在本地落后时执行 `stash -u + rebase --autostash + stash pop`；rebase/stash 冲突返回阻塞状态，禁止强行 push
+3. **操作 git 仓库前必须先与上游同步**：`commit_and_push` 在 `git add` 前、`init_repo` 对已存在克隆均须先 `fetch` 并在本地落后时执行 `（仅在有本地改动时）stash -u + rebase +（仅当 stash 存在时）stash pop`，去掉 `--autostash`；rebase/stash 冲突返回阻塞状态，禁止强行 push
 4. push 失败视为阻塞性错误，与初始化失败同等处理
 5. **提交内容限制（强制）**：构建缓存与构建产物（含但不限于 `linglong/`、
    `bins/`、`reports/`、`build_cache/`、`file_res/`、`*.layer`、`*.uab`，以及下载的
