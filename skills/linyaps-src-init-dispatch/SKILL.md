@@ -60,7 +60,7 @@ Git 提交成功后，向 `linyaps-packer-*` 智能体发起打包指派。
    - `busy` → 记录警告"目标繁忙，仍发起指派（由平台排队）"，**不阻断**
    - 脚本报错 → 记录警告"无法查询状态，直接发起指派"，**不阻断**
 3. **选择最佳节点**：优先 `idle`，全部 `busy` 则随机选一个
-4. **指派执行**：查询当前 issue ID，通过 `multica issue comment add` 发送 mention 评论：
+4. **指派执行**：查询当前 issue ID，通过 `multica issue comment add` 发送 `@mention` 评论，再通过 `multica issue assign` 将 issue 指派给目标 agent：
    ```
    @<packer_name> 请按照 <workflow_type> 流程执行 <project_dir> 打包任务（<arch>）
    ```

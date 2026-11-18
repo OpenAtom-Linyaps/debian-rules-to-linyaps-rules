@@ -143,9 +143,18 @@ except Exception:
     ISSUE_ID=$(multica issue list --limit 10 2>/dev/null | grep -oP 'issue-\d+' | head -1)
     if [[ -n "$ISSUE_ID" ]]; then
       WT="${WORKFLOW_TYPE:-debian-rules-to-linyaps}"
+      # Step 1: 发送 @ 提及评论（通知 agent）
       multica issue comment add "$ISSUE_ID" \
         --content "@${SELECTED_AGENT} 请按照 ${WT} 流程执行 ${PROJECT_DIR} 打包任务（${ARCH}）" \
-        2>/dev/null && ASSIGNED=true || echo "[WARN] multica comment 发送失败" >&2
+        2>/dev/null || echo "[WARN] multica comment 发送失败" >&2
+
+      # Step 2: 指派 issue 给目标 agent（assign 负责人）
+      if multica issue assign "$ISSUE_ID" --to "$SELECTED_AGENT" \
+        2>/dev/null; then
+        ASSIGNED=true
+      else
+        echo "[WARN] multica assign 失败" >&2
+      fi
     else
       echo "[WARN] 无法查询 ISSUE_ID，跳过指派" >&2
     fi
