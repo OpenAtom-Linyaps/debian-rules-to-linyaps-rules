@@ -65,7 +65,7 @@
 | 阶段 | 子 Skill | 职责 | 辅助脚本 |
 |------|----------|------|----------|
 | A1 | `src2linyaps.debian.test-deps` | 检测 `Build-Depends` 可用性（非交互式 dry-run） | `test-build-deps.sh` |
-| A2 | `src2linyaps.debian.analyze-control` | 解析 `debian/control`，多包合并去重；基于 apt 仓库解析运行时依赖 | `parse-control.py` + `resolve-runtime-deps.py` |
+| A2 | `src2linyaps.debian.analyze-control` | 解析 `debian/control`，多包合并去重；基于 apt 仓库解析运行时依赖 | `init-control.py` |
 | A3 | `src2linyaps.debian.analyze-rules` | 分析 rules/changelog/install 等，输出 build_section | `analyze-rules.py` |
 | A4 | `src2linyaps.debian.build-res-generate` | 合并 control + build_section + 默认值，生成 `linglong.yaml` | `generate-linglong-yaml.py` |
 
@@ -105,6 +105,7 @@
 │   │   ├── SKILL.md
 │   │   ├── runtime-depends-blacklist.json     # 运行时依赖黑名单（编译器/Mesa 等）
 │   │   └── scripts/
+│   │       ├── init-control.py              # [统一入口] 解析 control + 查询运行时依赖（编排 parse-control 与 resolve-runtime-deps）
 │   │       ├── parse-control.py
 │   │       └── resolve-runtime-deps.py        # 基于 apt-cache 查询运行时依赖
 │   ├── src2linyaps.debian.analyze-rules/     # [子 Skill] 构建规则 + 资源扫描
@@ -121,6 +122,8 @@
 │   └── src2linyaps.source.analyze-args/      # [子 Skill] 编译参数提取
 │       ├── SKILL.md
 │       └── scripts/extract-build-args.py
+│   └── src2linyaps.debug/                    # [调试 Skill] 独立调试入口（user-invocable: true）
+│       └── SKILL.md
 ├── .opencode/skills/                         # 符号链接 → ../../skills/*
 ├── agent-config.json                         # 全局配置
 └── tests/
@@ -153,7 +156,7 @@
 
 ### Multica 版配置
 
-`for-multica/agent.md` 顶部声明 `AGENT_CONFIG_PATH` 变量指向 `for-multica/agent-config.json`，所有下游 skill 通过 `agent_config_path` 参数接收该路径，集中管理配置入口。改路径只需修改 `agent.md` 顶部一行声明。`agent-config.json` 包含 `global`、`extension`、`assignment` 三个区段。
+`for-multica/agent.md` 顶部声明 `AGENT_CONFIG_PATH` 变量指向 `for-multica/agent-config.json`。**该路径只传给需要读取配置内容的 SKILL**（`linyaps-git-workflow`、`linyaps-src-init-dispatch`、`src2linyaps.debug`）；其余 `src2linyaps.*` skill 不接收 `agent_config_path`，而是复用 agent 在 Step 1 解析好的已解析字段（`defaults_path`/`schema_path`/`patterns_path`/`control_schema_path`）。`agent-config.json` 包含 `global`、`extension`、`assignment` 三个区段。
 
 ## 输出格式
 
@@ -211,10 +214,10 @@ bash tests/test-mismatch.sh
 |------|------|
 | 多包合并 | 所有 Package 条目合并去重到单一输出，不区分主包和 common-data |
 | 依赖检测 | `DEBIAN_FRONTEND=noninteractive apt-get build-dep --dry-run`，不实际安装 |
-| 子 Skill 可见性 | 全部 `user-invocable: false`，仅由 Agent 编排调用 |
+| 子 Skill 可见性 | 全部 `user-invocable: false`，仅由 Agent 编排调用（例外：`src2linyaps.debug` 为 `user-invocable: true` 独立调试入口） |
 | 构建参数提取 | 优先从 `debian/rules` override 段提取自定义值，否则使用默认值 |
 | 资源扫描 | 合并所有 `*.install` / `*.links` / `*.docs` / `*.manpages` 文件，去重 |
-| 运行时依赖过滤 | `resolve-runtime-deps.py` 支持 `--blacklist` 参数，从 JSON 文件加载黑名单包名，过滤编译器（gcc/clang/llvm 等）和 GPU 驱动（mesa/libgl 等）避免写入 `runtimeDepends` |
+| 运行时依赖过滤 | `resolve-runtime-deps.py` 支持 `--blacklist` 参数，从 JSON 文件加载黑名单包名，过滤编译器（gcc/clang/llvm 等）和 GPU 驱动（mesa/libgl 等）避免写入 `runtimeDepends`（辅助过滤）。**存在性校验（Issue 55）**：`depends.py`（由 `src2linyaps.debian.analyze-control` 同源持有）提供 `package_exists()`，`init-control.py` 逐包核验后剔除不存在于 apt 仓库的包。其他 skill 不跨 skill import，由 Agent 编排调用 analyze-control 做校验 |
 | Version 字段 | 从 `debian/changelog` 提取 baseline 版本号，fallback 使用 `linglong-defaults.json` |
 | Base/Runtime | 默认 `org.deepin.base/25.2.2` + `org.deepin.runtime.dtk/25.2.2`，支持 CSV/JSON 覆盖 |
 | 输出校验 | 必须通过 `validate-linglong-yaml.py --schema linglong-schema.yaml` 校验 |
@@ -226,7 +229,7 @@ bash tests/test-mismatch.sh
 
 | 文件 | 说明 |
 |------|------|
-| `for-multica/agent.md` | Multica 工作流 agent（声明 `AGENT_CONFIG_PATH` 变量，注入 `agent_config_path` 参数给所有下游 skill） |
+| `for-multica/agent.md` | Multica 工作流 agent（声明 `AGENT_CONFIG_PATH` 变量，仅向需读配置的 skill 注入 `agent_config_path`，其余 skill 复用解析后的已解析字段） |
 | `for-multica/agent-config.json` | Multica 配置（含 `projects_repo`、`workspace`、`assignment` 等） |
 | `for-multica/scripts/check-agent-status.sh` | Agent 状态查询脚本（热备方案） |
 

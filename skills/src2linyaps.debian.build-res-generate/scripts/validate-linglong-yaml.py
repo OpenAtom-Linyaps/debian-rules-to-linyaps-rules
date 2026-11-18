@@ -13,9 +13,10 @@ validate-linglong-yaml.py — 检测生成的 linglong.yaml 格式化与字段�
   - 无 sources 段（按约束）
   - build_depends 条目无版本约束残留
   - 无非法字段（基于 skills/config/linglong-schema.yaml 约束）
-
-用法:
-    python3 validate-linglong-yaml.py <path> [--schema <path>]
+- build 段参考检查 + 禁用参数检查（基于 --build-tool 和 reference/common-building-rules.yaml）
+ 
+ 用法:
+     python3 validate-linglong-yaml.py <path> [--schema <path>] [--build-tool <tool>] [--reference <path>]
 
 退出码: 0 = 通过, 1 = 失败
 """
@@ -26,6 +27,8 @@ import os
 import re
 import sys
 import yaml
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 COMMAND_MUST_BE_LIST = "field 'command' must be a list (not string/null/missing)"
 VERSION_MUST_BE_STR = "field 'version' must be a string"
@@ -40,6 +43,7 @@ UNKNOWN_TOP_LEVEL = "unknown top-level field '{key}' (not in schema allowed list
 FORBIDDEN_PATH = "forbidden field path '{path}': {message}"
 SCHEMA_NOT_FOUND = "schema file not found at {path}, skipping field legality checks"
 HARDCODED_PREFIX = "field 'build' uses hardcoded path '{match}' instead of ${{PREFIX}}"
+BLACKLIST_VIOLATION = "build section contains '{word}=<value>' which is not allowed for build tool type '{build_tool}'"
 
 
 def load_schema(schema_path: str) -> dict | None:
@@ -74,7 +78,96 @@ def check_forbidden_paths(data, schema, errors, parent_path=""):
     _walk(data, parent_path)
 
 
-def validate(path: str, schema_path: str = "") -> list:
+def load_blacklist(path=None):
+    if path is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, '..', 'build-section-blacklist.yaml')
+    if not os.path.isfile(path):
+        return None
+    with open(path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    return config.get('blacklist', {})
+
+
+def check_blacklist(build_section, build_tool, blacklist):
+    errors = []
+    if build_tool not in blacklist:
+        return errors
+    forbidden = blacklist.get(build_tool, [])
+    for word in forbidden:
+        pattern = re.compile(rf'{re.escape(word)}=\S+')
+        if pattern.search(build_section):
+            errors.append(BLACKLIST_VIOLATION.format(word=word, build_tool=build_tool))
+            errors.append(
+                f"  [fix] 移除 build 段的 '{word}=<value>'（仅 make 类型允许），"
+                f"改用 --prefix / -DCMAKE_INSTALL_PREFIX=${PREFIX} 配置安装目录"
+            )
+    return errors
+
+
+def load_reference(path=None):
+    if path is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_dir, '..', 'reference', 'common-building-rules.yaml')
+    if not os.path.isfile(path):
+        return None
+    with open(path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+
+def _split_commands(text):
+    text = re.sub(r'\\\n', ' ', text)
+    parts = re.split(r'&&|;|\|\||\n', text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _matches_command_def(cmd_def, commands):
+    if 'one_of' in cmd_def:
+        for alt in cmd_def['one_of']:
+            patterns = alt.get('patterns', [])
+            exclude = alt.get('exclude', [])
+            for cmd in commands:
+                if all(p in cmd for p in patterns):
+                    if not any(e in cmd for e in exclude):
+                        return True
+        return False
+    patterns = cmd_def.get('patterns', [])
+    exclude = cmd_def.get('exclude', [])
+    for cmd in commands:
+        if all(p in cmd for p in patterns):
+            if not any(e in cmd for e in exclude):
+                return True
+    return False
+
+
+def check_against_reference(build_section, build_tool, reference):
+    if reference is None:
+        return [], []
+    tool_ref = reference.get('tools', {}).get(build_tool, {})
+    if not tool_ref:
+        return [], []
+    commands = _split_commands(build_section)
+    warnings = []
+    for cmd_def in tool_ref.get('commands', []):
+        if not _matches_command_def(cmd_def, commands):
+            warnings.append(
+                f"build section: missing required command '{cmd_def['description']}'"
+            )
+    errors = []
+    for fb in tool_ref.get('forbidden', []):
+        fb_patterns = fb.get('patterns', [])
+        if not fb_patterns:
+            continue
+        for cmd in commands:
+            if all(p in cmd for p in fb_patterns):
+                errors.append(
+                    f"build section contains forbidden pattern: {fb['description']}"
+                )
+                break
+    return warnings, errors
+
+
+def validate(path: str, schema_path: str = "", build_tool: str = "unknown", reference=None) -> list:
     errors = []
 
     # 1. Parse YAML
@@ -106,6 +199,14 @@ def validate(path: str, schema_path: str = "") -> list:
     ver = data.get('version')
     if not isinstance(ver, str) or not ver:
         errors.append(f"{VERSION_MUST_BE_STR} (got {type(ver).__name__}: {ver!r})")
+    elif not re.fullmatch(r'\d+(\.\d+){3}', ver):
+        errors.append(
+            f"field 'version' must be 4 numeric segments (MAJOR.MINOR.PATCH.REV), got {ver!r}; "
+            "excluding epoch prefix and {+dfsg,~rc,-rev} suffixes, e.g. '30.2.3+dfsg-3deepin1' -> '30.2.3.0'"
+        )
+        errors.append(
+            f"  [fix] 版本格式由 generate-linglong-yaml.py 自动归一化，建议重新生成而非手工 edit"
+        )
 
     # 5. package section
     pkg = data.get('package')
@@ -170,6 +271,17 @@ def validate(path: str, schema_path: str = "") -> list:
             m = re.search(pattern, build_val)
             if m:
                 errors.append(HARDCODED_PREFIX.format(match=display))
+                errors.append(
+                    f"  [fix] {display} 命中：安装到 ${{PREFIX}}，可用 "
+                    "`sed -E 's#(prefix|PREFIX|INSTALL_ROOT|DESTDIR)=/[^ ]*#\\1=${PREFIX}#g'` "
+                    "或 regenerate 的 build_section 修正"
+                )
+
+        # 8b. Check against reference (required commands + forbidden patterns)
+        ref_warnings, ref_errors = check_against_reference(build_val, build_tool, reference)
+        for w in ref_warnings:
+            print(f"  [warn] {w}", file=sys.stderr)
+        errors.extend(ref_errors)
 
     # 9. No sources section
     if 'sources' in data:
@@ -203,11 +315,18 @@ def main():
     parser.add_argument('path', help='Path to linglong.yaml')
     parser.add_argument('--schema', default='',
                         help='Path to schema constraint file (default: auto-detect)')
+    parser.add_argument('--build-tool', default='unknown',
+                        choices=['cmake', 'meson', 'make', 'autotools', 'unknown'],
+                        help='build tool type (from detect-tool)')
+    parser.add_argument('--reference', default='',
+                        help='path to reference/common-building-rules.yaml')
     args = parser.parse_args()
 
     schema_path = args.schema or default_schema_path()
+    reference_path = args.reference or ''
+    reference = load_reference(reference_path if reference_path else None)
 
-    errors = validate(args.path, schema_path)
+    errors = validate(args.path, schema_path, args.build_tool, reference)
 
     if errors:
         print(f"FAIL: {len(errors)} issue(s) found", file=sys.stderr)
