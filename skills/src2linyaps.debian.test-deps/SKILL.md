@@ -47,3 +47,5 @@ user-invocable: false
 - 需要 root 权限执行 `apt-get`（或 sudo 免密码）
 - 若 `apt-get build-dep` 命令不可用，回退到 dpkg 查询方式
 - 使用 `scripts/test-build-deps.sh` 辅助执行
+
+> 上下文效率：通用规则见 `src2linyaps.constraints` SKILL §7。本 skill 特有：输出 `available_pkgs`/`missing_pkgs` 可能达数百条；调用方只读 `status` 与计数。

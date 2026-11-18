@@ -81,3 +81,5 @@ binaryPackages:
 - 支持黑名单机制：`runtime-depends-blacklist.json` 中列出的包名会被从 `runtimeDepends` 中剔除，避免编译器、Mesa 驱动等非应用核心组件被错误写入（辅助过滤）
 - **存在性硬校验（同源持有）**：遵循 `src2linyaps.constraints` **SKILL**（运行时依赖存在性核验，Issue 55）。本 skill 的 `scripts/depends.py` 提供 `package_exists()`（逐包 `apt-cache show`），`init-control.py` 在 `runtimeDepends` 写入前逐包核验；**不存在于 apt 仓库的包一律剔除**。其他 skill 需要存在性校验时由 Agent 调用本 skill，**禁止跨 skill 直接 import 本模块**
 - `buildDependsAlternatives` 中的每个替代组表示一组可互换的包（Debian `|` 语法），`buildDepends` 中已包含每组第一个选项。LLM 应根据实际情况选择最适合的选项写入最终配置，例如优先选择在 apt 源中可用的包，或选择与项目架构更匹配的包
+
+> 上下文效率：通用规则见 `src2linyaps.constraints` SKILL §7。本 skill 特有：输出含全量依赖列表（`runtimeDepends`/`buildDependsAlternatives`）；调用方只读计数与 `pkgName`，长列表传文件路径。

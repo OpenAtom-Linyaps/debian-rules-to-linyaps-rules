@@ -136,3 +136,5 @@ build: |
 ```
 
 取值优先级: CLI 显式参数 > defaults JSON > 硬编码默认值
+
+> 上下文效率：通用规则见 `src2linyaps.constraints` SKILL §7。本 skill 特有：生成的 `linglong.yaml` 不回读全文；校验只取退出码与错误列表。

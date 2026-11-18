@@ -20,6 +20,7 @@ user-invocable: false
 - 共享脚本：`scripts/dispatch.sh`（统一入口）
 - 配置来源：`agent_config_path` 参数指向的 `agent-config.json` 的 `assignment` 区段
 - 本 skill 脚本：`skills/linyaps-src-init-dispatch/scripts/`
+- 状态查询脚本：`skills/linyaps-src-init-dispatch/scripts/check-agent-status.sh`（由 Action 3 封装；选项见脚本 `usage()`）
 
 ## 三种 Action 接口
 
