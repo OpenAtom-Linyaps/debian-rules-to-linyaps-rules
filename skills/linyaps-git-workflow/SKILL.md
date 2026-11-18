@@ -95,7 +95,7 @@ Git 仓库克隆 + 推送权限验证。
    - 多个包 → `feat: add/update multiple packages`
    - 无 CI_ll_ 变更 → `chore: update analysis scripts`
 8. **`git commit`**：若无变更，记录已存在，不中断
-9. **`git push`**：失败则记录 `git_push_failed`
+9. **`git push origin <默认分支>`**（默认分支由 `detect_default_branch` 动态检测）：失败则记录 `git_push_failed`
 10. **记录结果**到 `data_dir`：`git_commit_success, <commit_sha>` 或 `git_push_failed, <error>`
 
 ## 提交前缓存清理
@@ -165,3 +165,4 @@ Git 仓库克隆 + 推送权限验证。
    原始套件 `*.deb`/`*.tar.*`/`*.tgz`/`*.zip` 等）一律**禁止** `git add` 加入提交。
    提交前必须先执行 `clean_project_cache.sh`，再以 `pre-commit-guard.sh` 确认暂存区
    无任何缓存内容，通过后方可 `git commit`
+6. **推送目标为远程仓库默认分支（动态检测，不硬编码）**：`commit_and_push` 与 `init_repo` 均调用 `detect_default_branch`（优先 `origin/HEAD`，回退 `ls-remote --symref`）取默认分支后 `git checkout` 再操作，`git push` 显式 `origin <默认分支>`；克隆残留的非默认分支不影响推送目标。检测失败返回 blocked。
