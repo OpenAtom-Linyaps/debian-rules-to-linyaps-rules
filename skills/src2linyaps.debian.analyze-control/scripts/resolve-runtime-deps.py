@@ -38,10 +38,12 @@ def strip_version(pkg: str) -> str:
     'cmake (>= 3.16~)'   → 'cmake'
     'xauth <!nocheck>'   → 'xauth'
     'libc6:amd64'        → 'libc6'
+    'libasound2-dev [linux-any]' → 'libasound2-dev'
     """
     pkg = pkg.strip()
     pkg = re.sub(r'\s*\([^)]*\)', '', pkg).strip()
     pkg = re.sub(r'\s*<![^>]+>', '', pkg).strip()
+    pkg = re.sub(r'\s*\[[^\]]*\]', '', pkg).strip()
     pkg = re.sub(r':\w+$', '', pkg).strip()
     return pkg
 
