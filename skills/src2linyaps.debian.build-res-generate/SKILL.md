@@ -114,6 +114,15 @@ build: |
   `build_tool` 为 `unknown`（二进制拷贝 fallback）不注入 clang。
   若用户 prompt 显式声明不用 clang 或使用 gcc 编译，主 agent 调用脚本时传 `--no-clang`
   关闭默认注入（此时不加 export CC/CXX，也不追加 clang/lld/ccache/libomp5）。
+- `补丁构建依赖`：`build_section` 含 `patch -p1` 命令时（补丁由 `migrate-patches.py` 注入），
+  `buildext.apt.build_depends` 自动追加 `patch`（容器内执行 `patch -p1` 需要 `patch` 包，未必预装），
+  去重后追加，参照 clang 追加模式。宿主系统需预装 `quilt`（`migrate-patches.py` 用 `quilt push` 验证补丁）。
+- `自定义 deb 解压`：用户提供 `--custom-deb-urls <conf_file>` 时（`custom_debs_urls.conf`，
+  含 `CUSTOM_DEB_URLS=(...)` bash 数组），build 段在 `touch`/`chmod` 之前注入
+  `bash /project/linglong/download_custom_debs.sh "${PREFIX}"`。
+  脚本和配置文件复制到 `linglong.yaml` 同级目录（映射到容器 `/project/linglong/`），
+  下载 deb 并解压到 `${PREFIX}`（`usr` 子目录平铺）。
+  容器内需预装 `wget`、`dpkg`/`dpkg-deb`、`python3`。deb 下载失败为非阻断（`FAIL_COUNT++`，继续）。
 - `Build 段参考约束`：`reference/common-building-rules.yaml` 同时用于**生成**和**校验**：
 
   - **生成阶段**：脚本通过 `common-building-rules.yaml` 生成规范构建命令模板，注入 `build_args` 和 `extra_args` 参数，补充缺失的必选命令
@@ -121,6 +130,13 @@ build: |
     - **必需命令检查**：build 段必须包含该工具类型的规范构建命令。缺失命令自动从参考补充，并打印 `[supplement]` 提示
     - **禁用参数检查**：build 段禁止出现黑名单参数（如 cmake 工程中的 `DESTDIR=`）。检测到禁用参数时打印 `ERROR` 并阻断流程（exit 1）
     - **命令拆分规则**：先合并 `\` 续行，再按 `&&`/`;`/`||`/`\n` 拆分为独立命令，逐条匹配
+
+## 自定义 deb 解压产物
+
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| `download_custom_debs.sh` | `scripts/download_custom_debs.sh`（复制到输出目录） | 静态下载解压脚本，容器内由 build 段调用 |
+| `custom_debs_urls.conf` | 用户提供的配置文件（复制到输出目录） | URL 列表，`CUSTOM_DEB_URLS=(...)` bash 数组 |
 
 ## 默认值配置 (`skills/config/linglong-defaults.json`)
 
