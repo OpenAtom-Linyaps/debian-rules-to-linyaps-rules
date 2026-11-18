@@ -29,6 +29,8 @@ permission:
 ## 目录约定
 
 - 本 skill 无独立 scripts 目录；构建/运行验证由 LLM 直接执行 `ll-builder` 命令。
+- upstream 源文件获取：通过 `skill()` 调用 `linyaps-upstream-query` skill 查询；用户指定的 `src_path`/`src_url` 优先，upstream 查询仅补缺。
+- 构建工具选择：LLM 检测 `pak_linyaps.sh` 存在性选择 pak_linyaps 或 ll-builder；pak_linyaps 参数由 LLM 读取脚本自行确定。
 - 内部资源（只读复用，路径相对于 workspace 根目录）：
   - `skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-yaml.py`
   - `skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-yaml.py`
@@ -44,7 +46,8 @@ permission:
 | `layer_path` | string | 是 | 已有构建工程打包出的 layer 文件 |
 | `problem_desc` | string | 是 | 问题描述（构建失败/运行异常/common res 缺失等） |
 | `project_path` | string | 否 | 被纠正的工程目录（含 `linglong.yaml`） |
-| `debian_path` | string | 否 | 额外提供的 debian 构建资源目录 |
+| `src_path` | string | 否 | 用户指定的源码路径（本地路径或归档文件）；未提供时通过 upstream 查询获取 |
+| `src_url` | string | 否 | 用户指定的源码下载 URL；未提供时通过 upstream 查询获取 |
 | `agent_config_path` | string | 否 | 指派 packer 时指向的 `agent-config.json` |
 
 ## 内部 skills 清单与用途
@@ -60,7 +63,7 @@ permission:
 | `src2linyaps.source.detect-tool` | `skills/src2linyaps.source.detect-tool/` | 检测构建工具类型（cmake/meson/make/autotools），修复 build 段工具错误 |
 | `src2linyaps.source.analyze-args` | `skills/src2linyaps.source.analyze-args/` | 提取编译参数与默认值（修复 configure/cmake 参数） |
 | `linyaps-git-workflow` | `skills/linyaps-git-workflow/` | Git 提交/推送修复后的工程（阶段四条件推送） |
-| `linyaps-src-init-dispatch` | `skills/linyaps-src-init-dispatch/` | Multica 指派分发（debug 修复完成后指派 packer 节点） |
+| `linyaps-upstream-query` | `for-multica/skills/linyaps-upstream-query/` | 包名查询上游源码下载地址（用户未提供 src_path/src_url 时调用） |
 
 > **授权说明**：`linyaps-src-init-dispatch` 原约束「仅 debian-rules-to-linyaps agent 调用」。本 skill 属同一 workflow 体系的 debug 环节，特此在本文档显式授权其 `assign_packer` 调用场景，其他 action（`update_issue_status` / `check_agent_status`）不在本 skill 授权范围内。
 
@@ -131,13 +134,100 @@ python3 skills/src2linyaps.debian.build-res-generate/scripts/validate-linglong-y
 
 #### 4.1 构建验证
 
-在 `<project_path>` 目录下执行 `ll-builder build` + `ll-builder export`，重试 ≤ 2 次（含首次），单次超时窗口 1800 秒。
+`validate-linglong-yaml.py` 校验通过后，先获取源文件、选择构建工具，再执行构建。重试 ≤ 2 次（含首次），单次超时窗口 1800 秒。
 
-**构建命令**：
+##### 4.1.0 获取源文件
+
+获取源文件的优先级：**用户指定 > upstream 查询**。
+
+- 用户指定 `src_path`（本地路径）→ 直接使用，不调 upstream。
+- 用户指定 `src_url`（下载 URL）→ 直接使用，不调 upstream。
+- 两者均无 → 通过 `skill()` 调用 `linyaps-upstream-query` skill 查询补缺。
+
+`pkgName` 从 `<project_path>/linglong.yaml` 的 `package` 字段获取（`linyaps-upstream-query` 查询所需）。若 linglong.yaml 无 `package` 字段，跳过 upstream 查询。
+
+`linyaps-upstream-query` skill 内部完成查询、下载、解压，返回 `src_path`/`src_url`/`arch`/`orig_version` 等字段。调用方只需从返回 JSON 的 `tasks[]` 中提取字段，`errors[]` 中的失败不阻塞构建。
+
+##### 4.1.1 构建工具选择
+根据项目目录检测构建工具类型：
+
 ```bash
-# 记录开始时间，用于后续 .layer 文件检测
-start_time=$(date +%s)
+# 检测项目类型：项目目录有 pak_linyaps.sh → binary 类型；否则 → source 类型
+if [[ -f "<project_path>/pak_linyaps.sh" ]]; then
+  build_tool="pak_linyaps"   # binary 类型
+else
+  build_tool="ll-builder"    # source 类型
+fi
+```
 
+##### 4.1.2 构建执行
+
+记录开始时间，用于后续 `.layer` 文件检测：
+
+```bash
+start_time=$(date +%s)
+```
+
+**binary 分支（`build_tool == "pak_linyaps"`）**：
+
+LLM **必须先读取项目目录下的 `pak_linyaps.sh` 脚本**，理解其支持的参数和用法，再根据当前上下文（arch、orig_version、src_path、output_dir）构造正确的调用命令。不得跳过读取直接硬编码参数。`output_dir` 默认可用 `<project_path>/output`，由 LLM 读取脚本后确定。
+
+参考调用模式（来自 `linglong-binary-runner/scripts/run_tasks.sh` L191-195）：
+
+```bash
+cd <project_path>
+# LLM 先读取 pak_linyaps.sh 理解其参数，再构造命令
+./pak_linyaps.sh --linyaps_arch=<arch> --origin_version=<orig_version> \
+  --src_path=<src_path> --output_dir=<output_dir> [--build_tmp_dir=<tmp>]
+```
+
+- 重试 ≤ 2 次（含首次），单次超时 1800 秒，退出码 124 消歧逻辑同 source 分支。
+- 构建成功标志：`output_dir` 下生成 `*_binary.layer` 文件。
+
+```bash
+# 构建尝试（最多 2 次）
+for attempt in 1 2; do
+  echo "== 构建尝试 $attempt/2 (pak_linyaps) =="
+  timeout 1800 <pak_linyaps_command>  # LLM 读取脚本后构造的实际命令
+  build_rc=$?
+
+  # 退出码 124 = timeout 命令超时，需消歧
+  if [[ $build_rc -eq 124 ]]; then
+    if pgrep -x ll-builder >/dev/null 2>&1 || pgrep -x fuse-overlayfs >/dev/null 2>&1 || pgrep -x erofsfuse >/dev/null 2>&1; then
+      echo "== 构建仍在进行，继续等待 =="
+      wait
+      build_rc=$?
+    else
+      echo "== 构建进程已退出（超时无活跃进程），判定挂起 =="
+    fi
+  fi
+
+  if [[ $build_rc -eq 0 ]]; then
+    echo "== 构建成功 =="
+    break
+  fi
+
+  [[ $attempt -lt 2 ]] && sleep 10 && echo "== 重试构建 =="
+done
+
+if [[ $build_rc -eq 0 ]]; then
+  # 检测 output_dir 下 *_binary.layer 文件
+  layer_file=$(find <output_dir> -maxdepth 1 -name "*_binary.layer" -type f -newermt "@$start_time" 2>/dev/null | head -1)
+  if [[ -n "$layer_file" ]]; then
+    build_verify="passed"
+  else
+    build_verify="failed"
+  fi
+else
+  build_verify="failed"
+fi
+```
+
+**source 分支（`build_tool == "ll-builder"`）**：
+
+执行 `ll-builder build --skip-output-check` + `ll-builder export --layer --no-develop -z zstd`。
+
+```bash
 # 构建尝试（最多 2 次）
 for attempt in 1 2; do
   echo "== 构建尝试 $attempt/2 =="
@@ -146,10 +236,9 @@ for attempt in 1 2; do
 
   # 退出码 124 = timeout 命令超时，需消歧
   if [[ $build_rc -eq 124 ]]; then
-    # 检查构建进程是否仍活跃（等价于 check-build-active.sh）
     if pgrep -x ll-builder >/dev/null 2>&1 || pgrep -x fuse-overlayfs >/dev/null 2>&1 || pgrep -x erofsfuse >/dev/null 2>&1; then
       echo "== 构建仍在进行，继续等待 =="
-      wait  # 等待已有进程完成
+      wait
       build_rc=$?
     else
       echo "== 构建进程已退出（超时无活跃进程），判定挂起 =="
@@ -195,6 +284,10 @@ fi
 ```
 
 **约束**：
+- 源文件获取优先级：用户指定 `src_path`/`src_url` > `skill()` 调用 `linyaps-upstream-query` 查询；查询失败时跳过源文件获取，不阻塞构建。
+- 构建工具选择依据：`pak_linyaps.sh` 存在 → binary（pak_linyaps）；否则 → source（ll-builder）。
+- binary 分支：LLM 必须先读取 `pak_linyaps.sh` 脚本理解参数，再构造调用命令；不得跳过读取直接硬编码参数。
+- binary 分支构建成功标志：`output_dir` 下 `*_binary.layer` 文件。
 - `--skip-output-check`：跳过输出检查（调试阶段允许非标准输出）。
 - `--layer --no-develop -z zstd`：导出 layer 格式，不包含 develop 层，zstd 压缩。
 - 退出码 124 时**不得仅凭超时判失败**：必须检查 `ll-builder` / `fuse-overlayfs` / `erofsfuse` 进程是否仍活跃。
@@ -202,9 +295,34 @@ fi
 
 #### 4.2 运行验证
 
-从导出的 layer 中执行应用 `command`，检查非正常退出。
+根据 `build_tool` 选择运行验证方式。构建验证失败时跳过（`run_verify="skipped"`）。
 
-**运行命令**：
+**binary 分支（`build_tool == "pak_linyaps"`）**：
+
+LLM 读取 `linglong.yaml` 的 `command` 字段构造运行命令，从 `pak_linyaps` 的 `output_dir` 运行 layer。
+
+```bash
+if [[ "$build_verify" == "passed" ]]; then
+  # LLM 从 linglong.yaml 读取 command 字段，构造运行命令
+  # 从 pak_linyaps 的 output_dir 运行 *_binary.layer
+  timeout 30 <run_command>
+  run_rc=$?
+
+  # 退出码 0 = 正常退出（通过）；124 = timeout 触发但进程可能仍在运行（视为通过）
+  if [[ $run_rc -eq 0 || $run_rc -eq 124 ]]; then
+    run_verify="passed"
+  else
+    run_verify="failed"
+  fi
+else
+  run_verify="skipped"
+fi
+```
+
+**source 分支（`build_tool == "ll-builder"`）**：
+
+使用 `ll-builder run` 验证应用可正常启动。
+
 ```bash
 if [[ "$build_verify" == "passed" ]]; then
   # 使用 ll-builder run 验证应用可正常启动
@@ -223,6 +341,8 @@ fi
 ```
 
 **约束**：
+- binary 分支：LLM 读取 `linglong.yaml` 的 `command` 字段构造运行命令，从 `output_dir` 运行 layer。
+- source 分支：使用 `ll-builder run --build-dir <project_path>`。
 - 超时 30 秒（应用启动验证，非完整功能测试）。
 - 退出码 0 或 124 = 通过；其他非零退出码 = 失败。
 - 构建验证失败时跳过运行验证（`run_verify="skipped"`）。
