@@ -59,6 +59,7 @@ yaml.add_representer(LiteralBlock, literal_block_representer)
 def strip_version_constraint(dep: str) -> str:
     dep = re.sub(r'\s*\([^)]*\)', '', dep).strip()
     dep = re.sub(r'\s*<[^>]+>', '', dep).strip()
+    dep = re.sub(r'\s*\[[^\]]*\]', '', dep).strip()
     dep = re.sub(r':\w+$', '', dep).strip()
     return dep
 
