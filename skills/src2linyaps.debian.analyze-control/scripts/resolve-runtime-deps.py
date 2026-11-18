@@ -29,7 +29,7 @@ import yaml
 MAX_RECURSE_DEPTH = 3
 
 # 包名后缀黑名单 — 这些包不应进入运行时依赖
-RUNTIME_EXCLUDED_SUFFIXES = ('-dev', '-dbgsym', '-dbg', '-doc')
+RUNTIME_EXCLUDED_SUFFIXES = ('-dev', '-dbgsym', '-dbg', '-doc', '-dev-bin', '-tools')
 
 
 def strip_version(pkg: str) -> str:
@@ -51,7 +51,9 @@ def strip_version(pkg: str) -> str:
 def is_runtime_package(pkg: str) -> bool:
     """判断包名是否属于不应进入 runtimeDepends 的类别。
 
-    过滤规则：以 -dev / -dbgsym / -dbg / -doc 结尾的包名。
+    过滤规则：以 -dev / -dbgsym / -dbg / -doc / -dev-bin / -tools 结尾的包名。
+    注意 RUNTIME_EXCLUDED_SUFFIXES 已按长度降序排列，保证 -dev-bin 等
+    长后缀优先匹配（避免 -dev-bin 命中 -dev）。
     """
     return pkg.endswith(RUNTIME_EXCLUDED_SUFFIXES)
 

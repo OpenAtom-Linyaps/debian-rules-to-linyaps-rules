@@ -217,7 +217,7 @@ bash tests/test-mismatch.sh
 | 子 Skill 可见性 | 全部 `user-invocable: false`，仅由 Agent 编排调用（例外：`src2linyaps.debug` 为 `user-invocable: true` 独立调试入口） |
 | 构建参数提取 | 优先从 `debian/rules` override 段提取自定义值，否则使用默认值 |
 | 资源扫描 | 合并所有 `*.install` / `*.links` / `*.docs` / `*.manpages` 文件，去重 |
-| 运行时依赖过滤 | `resolve-runtime-deps.py` 支持 `--blacklist` 参数，从 JSON 文件加载黑名单包名，过滤编译器（gcc/clang/llvm 等）和 GPU 驱动（mesa/libgl 等）避免写入 `runtimeDepends` |
+| 运行时依赖过滤 | `resolve-runtime-deps.py` 支持 `--blacklist` 参数，从 JSON 文件加载黑名单包名，过滤编译器（gcc/clang/llvm 等）和 GPU 驱动（mesa/libgl 等）避免写入 `runtimeDepends`（辅助过滤）。**存在性校验（Issue 55）**：`depends.py`（由 `src2linyaps.debian.analyze-control` 同源持有）提供 `package_exists()`，`init-control.py` 逐包核验后剔除不存在于 apt 仓库的包。其他 skill 不跨 skill import，由 Agent 编排调用 analyze-control 做校验 |
 | Version 字段 | 从 `debian/changelog` 提取 baseline 版本号，fallback 使用 `linglong-defaults.json` |
 | Base/Runtime | 默认 `org.deepin.base/25.2.2` + `org.deepin.runtime.dtk/25.2.2`，支持 CSV/JSON 覆盖 |
 | 输出校验 | 必须通过 `validate-linglong-yaml.py --schema linglong-schema.yaml` 校验 |

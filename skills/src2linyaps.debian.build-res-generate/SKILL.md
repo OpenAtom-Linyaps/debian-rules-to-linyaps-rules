@@ -102,6 +102,7 @@ build: |
 - 脚本使用 `skills/config/linglong-defaults.json` 作为默认值参考
 - 使用 `scripts/generate-linglong-yaml.py` 辅助生成
 - 使用 `scripts/validate-linglong-yaml.py` 验证生成结果格式
+- **存在性校验（Issue 55）**：apt 仓库存在性校验由 `src2linyaps.debian.analyze-control` 同源持有（`depends.py`）。**Agent 在本 skill 生成 `buildext.apt.depends` 之前，应先调用 analyze-control 做存在性校验**；`runtimeDepends` 中不存在于 apt 仓库的包一律剔除，禁止写入 `depends`。本 skill 不做跨 skill 直接 import。
 - `${PREFIX} 安装目录约束`：`build:` 字段中所有安装目录路径必须使用 `${PREFIX}`（大写）而非硬编码的 `/usr`。脚本 `generate-linglong-yaml.py` 会自动将 `${prefix}`（小写）替换为 `${PREFIX}`，并通过正则匹配将常见硬编码路径（如 `-DCMAKE_INSTALL_PREFIX=/usr`、`DESTDIR=/usr`、`--prefix=/usr`、`PREFIX=/usr/local` 等）替换为 `${PREFIX}`，作为 LLM 生成的 `build_section` 的安全网层
 - `Build 段参考约束`：`referance/common-building-rules.yaml` 同时用于**生成**和**校验**：
 

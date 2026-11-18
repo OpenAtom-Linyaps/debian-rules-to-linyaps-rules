@@ -15,12 +15,14 @@ init-control.py — 完整初始化 YAML：解析 debian/control + 基于 apt �
 
 import sys
 import os
-import re
 import subprocess
 import tempfile
 import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+from depends import package_exists  # noqa: E402 同目录依赖解析模块
+
 PARSE_CONTROL = os.path.join(SCRIPT_DIR, 'parse-control.py')
 RESOLVE_RUNTIME = os.path.join(SCRIPT_DIR, 'resolve-runtime-deps.py')
 
@@ -73,27 +75,16 @@ def run_resolve_runtime(control_info: dict, blacklist_path: str = None) -> list:
 def verify_runtime_deps(runtime_depends: list) -> list:
     if not runtime_depends:
         return []
-    try:
-        result = subprocess.run(
-            ['apt-cache', 'show'] + runtime_depends,
-            capture_output=True, text=True, timeout=120,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"WARNING: 运行时依赖验证失败，保留全部: {e}", file=sys.stderr)
-        return runtime_depends
-
+    available = []
     missing = []
-    for line in result.stderr.splitlines():
-        m = re.search(r'Unable to locate package\s+(.+)', line)
-        if m:
-            pkg = m.group(1).strip().rstrip('.')
-            if pkg:
-                missing.append(pkg)
-
-    available = [p for p in runtime_depends if p not in missing]
+    for pkg in runtime_depends:
+        if package_exists(pkg):
+            available.append(pkg)
+        else:
+            missing.append(pkg)
     if missing:
         print(
-            f"WARNING: 以下 {len(missing)} 个运行时依赖在 apt 源中不可用，已自动过滤: {missing}",
+            f"WARNING: 以下 {len(missing)} 个运行时依赖在当前 apt 仓库不可用，已自动过滤: {missing}",
             file=sys.stderr,
         )
     return available

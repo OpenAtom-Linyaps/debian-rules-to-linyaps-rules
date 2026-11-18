@@ -30,6 +30,8 @@ import re
 import sys
 import yaml
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 SPDX_HEADER = """# SPDX-FileCopyrightText: 2023 UnionTech Software Technology Co., Ltd.
 #
 # SPDX-License-Identifier: LGPL-3.0-or-later

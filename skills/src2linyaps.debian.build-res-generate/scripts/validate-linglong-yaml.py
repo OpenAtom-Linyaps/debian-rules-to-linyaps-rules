@@ -28,6 +28,8 @@ import re
 import sys
 import yaml
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 COMMAND_MUST_BE_LIST = "field 'command' must be a list (not string/null/missing)"
 VERSION_MUST_BE_STR = "field 'version' must be a string"
 PACKAGE_MUST_HAVE = "package must have non-empty 'id', 'name', 'version', 'kind'"

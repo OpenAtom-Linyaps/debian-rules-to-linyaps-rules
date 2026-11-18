@@ -111,7 +111,8 @@ skills:
 - 使用 `debian-control-schema.yaml` 中定义的合并策略（`union_dedup`）
 
 ### 运行时依赖过滤约束
-- 使用 `runtime-depends-blacklist.json` 过滤编译器（gcc/clang/llvm 等）和 GPU 驱动（mesa/libgl 等）
+- 使用 `runtime-depends-blacklist.json` 过滤编译器（gcc/clang/llvm 等）和 GPU 驱动（mesa/libgl 等），作为辅助过滤
+- **写入 `depends` 前必须逐包核验 apt 仓库存在性（不存在即剔除，filter-upstream）**；任一运行依赖进入 `buildext.apt.depends` 前都必须真实存在于当前 apt 仓库
 - 过滤后的运行时依赖写入 `runtimeDepends` 字段
 
 ### 构建参数提取约束
