@@ -107,7 +107,7 @@ build: |
 - 使用 `scripts/generate-linglong-yaml.py` 辅助生成
 - 使用 `scripts/validate-linglong-yaml.py` 验证生成结果格式
 - **存在性校验（Issue 55）**：apt 仓库存在性校验由 `src2linyaps.debian.analyze-control` 同源持有（`depends.py`）。**Agent 在本 skill 生成 `buildext.apt.depends` 之前，应先调用 analyze-control 做存在性校验**；`runtimeDepends` 中不存在于 apt 仓库的包一律剔除，禁止写入 `depends`。本 skill 不做跨 skill 直接 import。
-- `${PREFIX} 安装目录约束`：脚本 `generate-linglong-yaml.py` 自动将 `${prefix}`（小写）替换为 `${PREFIX}`，并通过正则替换常见硬编码路径（如 `-DCMAKE_INSTALL_PREFIX=/usr`、`DESTDIR=/usr`、`--prefix=/usr`、`PREFIX=/usr/local` 等）为 `${PREFIX}`，作为 LLM 生成的 `build_section` 的安全网层
+- `${PREFIX} 安装目录约束`：脚本 `generate-linglong-yaml.py` 自动将 `${prefix}`（小写）替换为 `${PREFIX}`，并通过正则替换常见硬编码路径（如 `-DCMAKE_INSTALL_PREFIX=/usr`、`DESTDIR=/usr`、`--prefix=/usr`、`PREFIX=/usr/local` 等）为 `${PREFIX}`，作为 LLM 生成的 `build_section` 的安全网层。安装子目录规范化：二进制 → `${PREFIX}/bin`、库 → `${PREFIX}/lib`、通用资源 → `${PREFIX}/share`，生成阶段自动修正错误子目录（打印 `[normalize]`），校验阶段阻断错误子目录；映射规则定义在 `reference/common-building-rules.yaml` 的 `install_dir_mapping` 键
 - `Clang 默认编译`：源码编译项目（`build_tool` ∈ cmake/meson/make/autotools）默认使用 clang——
   build 段最前注入 `export CC="clang"`、`export CXX="clang++"`；`buildext.apt.build_depends` 追加 `clang`/`lld`/`ccache`，
   `depends` 追加 `libomp5`。生成/校验均参照 `reference/example-with-clang.linglong.yaml`。

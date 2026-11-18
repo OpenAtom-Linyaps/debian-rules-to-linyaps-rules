@@ -17,6 +17,60 @@
 #   2. 按 && / ; / || / \\n 拆分为独立命令
 #   3. 每个命令去除首尾空白后逐一匹配
 
+# install_dir_mapping: 安装目录变量 → ${PREFIX} 子目录映射（机器可读单一事实来源）
+#   pattern:  变量前缀（含 =），用于匹配 build 段
+#   required: 唯一允许的 ${PREFIX} 子目录值
+#   category: binary / library / resources
+install_dir_mapping:
+  # binary → ${PREFIX}/bin
+  - pattern: '-DCMAKE_INSTALL_BINDIR='
+    required: '${PREFIX}/bin'
+    category: 'binary'
+  - pattern: '-DKDE_INSTALL_BINDIR='
+    required: '${PREFIX}/bin'
+    category: 'binary'
+  - pattern: '--bindir='
+    required: '${PREFIX}/bin'
+    category: 'binary'
+  # library → ${PREFIX}/lib
+  - pattern: '-DCMAKE_INSTALL_LIBDIR='
+    required: '${PREFIX}/lib'
+    category: 'library'
+  - pattern: '-DKDE_INSTALL_LIBDIR='
+    required: '${PREFIX}/lib'
+    category: 'library'
+  - pattern: '-DLIB_INSTALL_DIR='
+    required: '${PREFIX}/lib'
+    category: 'library'
+  - pattern: '--libdir='
+    required: '${PREFIX}/lib'
+    category: 'library'
+  # resources → ${PREFIX}/share
+  - pattern: '-DCMAKE_INSTALL_DATADIR='
+    required: '${PREFIX}/share'
+    category: 'resources'
+  - pattern: '-DCMAKE_INSTALL_DATAROOTDIR='
+    required: '${PREFIX}/share'
+    category: 'resources'
+  - pattern: '-DKDE_INSTALL_DATADIR='
+    required: '${PREFIX}/share'
+    category: 'resources'
+  - pattern: '-DKDE_INSTALL_DATAROOTDIR='
+    required: '${PREFIX}/share'
+    category: 'resources'
+  - pattern: '-DSHARE_INSTALL_DIR='
+    required: '${PREFIX}/share'
+    category: 'resources'
+  - pattern: '-DDATA_INSTALL_DIR='
+    required: '${PREFIX}/share'
+    category: 'resources'
+  - pattern: '--datadir='
+    required: '${PREFIX}/share'
+    category: 'resources'
+  - pattern: '--datarootdir='
+    required: '${PREFIX}/share'
+    category: 'resources'
+
 tools:
   qmake:
     commands:

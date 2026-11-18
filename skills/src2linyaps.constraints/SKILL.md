@@ -16,7 +16,7 @@ user-invocable: false
 
 ### 1. `${PREFIX}` 安装目录
 - 所有构建工具（cmake/meson/make/autotools）的安装目录参数必须使用 `${PREFIX}`，禁止硬编码 `/usr`、`/usr/local`。
-- 二进制 → `${PREFIX}/bin`，库 → `${PREFIX}/lib`，其余产物基于 `${PREFIX}`。
+- 二进制 → `${PREFIX}/bin`，库 → `${PREFIX}/lib`，通用资源 → `${PREFIX}/share`，其余产物基于 `${PREFIX}`。
 - `generate-linglong-yaml.py` 自动将 `${prefix}`（小写）与常见硬编码路径替换为 `${PREFIX}`，作为安全网层；`validate-linglong-yaml.py` 自动检测残留硬编码。
 
 ### 2. DESTDIR 黑名单

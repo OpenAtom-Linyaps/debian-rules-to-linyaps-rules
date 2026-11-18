@@ -136,6 +136,31 @@ def replace_hardcoded_prefixes(s: str) -> str:
     return s
 
 
+def normalize_install_dirs(build_section: str, reference: dict) -> str:
+    """Normalize install dir variables to canonical ${PREFIX} subdirectories.
+    Binary → ${PREFIX}/bin, Library → ${PREFIX}/lib, Resources → ${PREFIX}/share.
+    Auto-corrects wrong values, prints [normalize] to stderr."""
+    if not reference:
+        return build_section
+    mapping = reference.get('install_dir_mapping', [])
+    if not mapping:
+        return build_section
+    for entry in mapping:
+        pattern = entry['pattern']
+        required = entry['required']
+        category = entry.get('category', '')
+        # Match pattern + value (value = non-whitespace chars after pattern)
+        regex = rf'({re.escape(pattern)})(\S+)'
+        def _replace(m):
+            current = m.group(2).strip('"\'')
+            if current == required:
+                return m.group(0)
+            print(f"  [normalize] {pattern}{current} → {pattern}{required} (category: {category})", file=sys.stderr)
+            return f"{pattern}{required}"
+        build_section = re.sub(regex, _replace, build_section)
+    return build_section
+
+
 def load_blacklist(path=None):
     if path is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -224,8 +249,7 @@ def check_against_reference(build_section, build_tool, reference):
     return warnings, errors
 
 
-def build_yaml(data, build_section, version, architecture, base, runtime, command, with_deps, use_clang=False):
-    pkg_name = data.get('pkgName', '') or ''
+def build_yaml(data, build_section, version, architecture, base, runtime, command, with_deps, use_clang=False, reference=None):
     description = data.get('pkgDescription', '') or ''
     raw_build_depends = data.get('buildDepends', []) or []
     runtime_depends = data.get('runtimeDepends', []) or []
@@ -234,6 +258,7 @@ def build_yaml(data, build_section, version, architecture, base, runtime, comman
 
     build_section = build_section.replace('${prefix}', '${PREFIX}')
     build_section = replace_hardcoded_prefixes(build_section)
+    build_section = normalize_install_dirs(build_section, reference)
     if use_clang:
         build_section = 'export CC="clang"\nexport CXX="clang++"\n' + build_section
     if not build_section.endswith('\n'):
@@ -455,7 +480,7 @@ def main():
                 print(f"ERROR: {e}", file=sys.stderr)
             sys.exit(1)
 
-    result = build_yaml(control_info, build_section, version, architecture, base, runtime, command, with_deps, use_clang)
+    result = build_yaml(control_info, build_section, version, architecture, base, runtime, command, with_deps, use_clang, reference=reference)
 
     raw = yaml.dump(result, default_flow_style=False, allow_unicode=True, sort_keys=False, width=4096)
     formatted = add_section_breaks(raw)

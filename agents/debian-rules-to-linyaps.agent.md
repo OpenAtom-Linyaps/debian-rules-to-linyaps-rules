@@ -130,7 +130,7 @@ skills:
 ### ${PREFIX} 安装目录约束
 - 所有构建工具（cmake/meson/make/autotools）的安装目录参数必须使用 `${PREFIX}` 而非硬编码路径（如 `/usr`、`/usr/local`）
 - 禁止在 `build:` 段出现 `-DCMAKE_INSTALL_PREFIX=/usr`、`--prefix=/usr`、`prefix=/usr/local` 等硬编码
-- 二进制执行文件必须安装到 `${PREFIX}/bin`，库文件（shared libraries）必须安装到 `${PREFIX}/lib`
+- 二进制执行文件必须安装到 `${PREFIX}/bin`，库文件（shared libraries）必须安装到 `${PREFIX}/lib`，通用资源文件必须安装到 `${PREFIX}/share`
 - 其他构建工具的构建规则以此类推，所有编译产物安装路径必须基于 `${PREFIX}`
 - 校验阶段通过 `validate-linglong-yaml.py` 自动检查此约束
 

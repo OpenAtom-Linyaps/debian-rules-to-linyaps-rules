@@ -282,6 +282,26 @@ def validate(path: str, schema_path: str = "", build_tool: str = "unknown", refe
         for w in ref_warnings:
             print(f"  [warn] {w}", file=sys.stderr)
         errors.extend(ref_errors)
+        # 8c. Check install dir mapping (binary→bin, library→lib, resources→share)
+        if reference:
+            mapping = reference.get('install_dir_mapping', [])
+            for entry in mapping:
+                pattern = entry['pattern']
+                required = entry['required']
+                category = entry.get('category', '')
+                regex = rf'{re.escape(pattern)}(\S+)'
+                m = re.search(regex, build_val)
+                if m:
+                    current = m.group(1).strip('"\'')
+                    if current != required:
+                        errors.append(
+                            f"install dir '{pattern}' value '{current}' must be '{required}' "
+                            f"(category: {category})"
+                        )
+                        errors.append(
+                            f"  [fix] 将 {pattern}{current} 改为 {pattern}{required}，"
+                            f"或使用 generate-linglong-yaml.py 自动修正"
+                        )
 
     # 9. No sources section
     if 'sources' in data:
