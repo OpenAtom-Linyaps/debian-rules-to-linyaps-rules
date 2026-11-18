@@ -243,6 +243,106 @@ def build_yaml(data, build_section, version, architecture, base, runtime, comman
     return result
 
 
+def inject_args_to_configure(build_section: str, build_args: list, extra_args: str) -> str:
+    """将 build_args 和 extra_args 注入到 build_section 的 configure 命令中。
+
+    - build_args: 从 analyze-rules.py 提取的基础参数, 替换 configure 行中同名参数值
+    - extra_args: LLM 语义分析得到的额外参数, 追加到 configure 行末尾
+    - 空值参数自动省略
+    """
+    lines = build_section.split('\n')
+    result = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('./configure ') or stripped.startswith('cmake ') or stripped.startswith('meson '):
+            for arg in build_args:
+                name = arg.get('name', '')
+                value = arg.get('default', '')
+                if not value:
+                    continue
+                if stripped.startswith('./configure '):
+                    pattern = rf'--{re.escape(name)}=\S+'
+                    replacement = f'--{name}={value}'
+                    if re.search(pattern, stripped):
+                        stripped = re.sub(pattern, replacement, stripped)
+                    else:
+                        stripped += f' --{name}={value}'
+                elif stripped.startswith('cmake '):
+                    pattern = rf'-D{re.escape(name)}=\S+'
+                    replacement = f'-D{name}={value}'
+                    if re.search(pattern, stripped):
+                        stripped = re.sub(pattern, replacement, stripped)
+                    else:
+                        stripped += f' -D{name}={value}'
+                elif stripped.startswith('meson '):
+                    pattern = rf'-D{re.escape(name)}=\S+'
+                    replacement = f'-D{name}={value}'
+                    if re.search(pattern, stripped):
+                        stripped = re.sub(pattern, replacement, stripped)
+                    else:
+                        stripped += f' -D{name}={value}'
+            if extra_args:
+                stripped += f' {extra_args}'
+            result.append(line.replace(line.strip(), stripped))
+        else:
+            result.append(line)
+    return '\n'.join(result)
+
+
+def supplement_build_section(build_section: str, build_tool: str, reference: dict) -> str:
+    """检查 build_section 是否包含 reference 中定义的必选命令, 缺失则补充。"""
+    if reference is None:
+        return build_section
+    tool_ref = reference.get('tools', {}).get(build_tool, {})
+    if not tool_ref:
+        return build_section
+
+    commands = _split_commands(build_section)
+    supplement_lines = []
+
+    for cmd_def in tool_ref.get('commands', []):
+        if not _matches_command_def(cmd_def, commands):
+            desc = cmd_def.get('description', '')
+            patterns = cmd_def.get('patterns', [])
+            if 'one_of' in cmd_def:
+                patterns = cmd_def['one_of'][0].get('patterns', [])
+            if patterns:
+                supplement_line = ' '.join(patterns)
+                supplement_lines.append(supplement_line)
+                print(f"  [supplement] added missing command: {desc}", file=sys.stderr)
+
+    if supplement_lines:
+        build_section = build_section.rstrip('\n') + '\n' + '\n'.join(supplement_lines) + '\n'
+
+    return build_section
+
+
+def generate_build_section_from_reference(build_tool: str, build_args: list, reference: dict) -> str:
+    """从 common-building-rules.yaml 生成规范 build section 模板。"""
+    if reference is None:
+        return ''
+
+    tool_ref = reference.get('tools', {}).get(build_tool, {})
+    if not tool_ref:
+        return ''
+
+    lines = []
+    for cmd_def in tool_ref.get('commands', []):
+        patterns = cmd_def.get('patterns', [])
+        if 'one_of' in cmd_def:
+            patterns = cmd_def['one_of'][0].get('patterns', [])
+        if patterns:
+            exclude = cmd_def.get('exclude', [])
+            cmd_str = ' '.join(p for p in patterns if p not in exclude)
+            if cmd_str:
+                lines.append(cmd_str)
+
+    result = '\n'.join(lines)
+    if build_args:
+        result = inject_args_to_configure(result, build_args, '')
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description='Generate linglong.yaml')
     parser.add_argument('--control-info', required=True)
@@ -257,6 +357,10 @@ def main():
     parser.add_argument('--build-tool', default='unknown',
                         choices=['cmake', 'meson', 'make', 'autotools', 'unknown'],
                         help='build tool type (from detect-tool)')
+    parser.add_argument('--build-args', default='',
+                        help='build args JSON from analyze-rules.py (e.g. \'[{"name":"prefix","default":"${PREFIX}"}]\')')
+    parser.add_argument('--extra-args', default='',
+                        help='extra configure args from LLM semantic analysis (e.g. "--enable-qt --enable-dbus")')
     parser.add_argument('--reference', default='',
                         help='path to referance/common-building-rules.yaml')
     args = parser.parse_args()
@@ -275,14 +379,35 @@ def main():
     base = get_value(args.base, defaults.get('base', ''))
     runtime = get_value(args.runtime, defaults.get('runtime', ''))
     command = get_value(args.command, defaults.get('command', 'bash'))
-    build_section = args.build_section if args.build_section else defaults.get('build_section_fallback', '')
+    build_section = args.build_section if args.build_section else ''
 
-    # Reference check (required commands + forbidden patterns)
+    # Parse build_args
+    build_args = []
+    if args.build_args:
+        try:
+            build_args = json.loads(args.build_args)
+        except json.JSONDecodeError as e:
+            print(f"  [warn] failed to parse --build-args JSON: {e}", file=sys.stderr)
+
+    # Load reference
     reference = load_reference(args.reference if args.reference else None)
+
+    # Determine build_section: --build-section > reference generate > defaults fallback
+    if not build_section and reference:
+        build_section = generate_build_section_from_reference(args.build_tool, build_args, reference)
+    elif not build_section:
+        build_section = defaults.get('build_section_fallback', '')
+
+    # Inject args into configure commands
+    build_section = inject_args_to_configure(build_section, build_args, args.extra_args)
+
+    # Supplement missing commands from reference
     if reference:
-        warnings, errors = check_against_reference(build_section, args.build_tool, reference)
-        for w in warnings:
-            print(f"  [warn] {w}", file=sys.stderr)
+        build_section = supplement_build_section(build_section, args.build_tool, reference)
+
+    # Check forbidden patterns (blocking errors)
+    if reference:
+        _, errors = check_against_reference(build_section, args.build_tool, reference)
         if errors:
             for e in errors:
                 print(f"ERROR: {e}", file=sys.stderr)

@@ -29,6 +29,8 @@ user-invocable: false
 | `runtime` | string | runtime 镜像 | `defaults.json` |
 | `command` | string | 启动命令，按空格切割为 YAML 数组元素 | `defaults.json` |
 | `build_tool` | string | 构建工具类型（`cmake`/`meson`/`make`/`autotools`/`unknown`），由 `detect-tool` 前置检测提供 | `detect-tool` 输出 |
+| `build_args` | list of dict | 构建参数（从 `analyze-rules` 机械分析获取） | `analyze-rules` 输出 |
+| `extra_args` | string | 额外编译参数（LLM 语义分析 `debian/rules` 获取） | `analyze-rules` 输出 |
 | `agent_config_path` | string | `agent-config.json` 的绝对路径，由主 agent 在 Step 1 解析后传入 | 主 agent |
 
 ## 工作流程
@@ -38,8 +40,16 @@ user-invocable: false
 3. 加载 `skills/config/linglong-defaults.json` 获取默认值
 4. 按优先级解析各字段：CLI 参数 > defaults JSON > 硬编码默认值
 5. 对 `buildDepends` 剥离版本约束（`cmake (>= 3.16~)` → `cmake`）
-6. 对 `build_section` 执行参考检查（必需命令是否存在、禁用参数是否出现），缺失命令打印 `[warn]`，禁用参数阻断流程
-7. 构建完整 YAML 结构并写入输出文件
+6. 构建 build section：
+   a. 若 `--build-section` 提供 → 使用 LLM 自定义构建段
+   b. 否则 → 从 `referance/common-building-rules.yaml` 按工具类型生成规范模板
+   c. 注入 `build_args`（非空参数替换 configure 行中同名值）
+   d. 追加 `extra_args` 到 configure 命令行末尾
+   e. 对照 reference 补充缺失的必选命令
+   f. 检查 forbidden patterns，命中则阻断
+7. 路径规范化（`${prefix}` → `${PREFIX}`、硬编码路径替换）
+8. 追加 `touch ${PREFIX}/.linyaps_genius` 和 `chmod -R 755 ${PREFIX}`
+9. 构建完整 YAML 结构并写入输出文件
 
 ## 输出
 
@@ -93,10 +103,13 @@ build: |
 - 使用 `scripts/generate-linglong-yaml.py` 辅助生成
 - 使用 `scripts/validate-linglong-yaml.py` 验证生成结果格式
 - `${PREFIX} 安装目录约束`：`build:` 字段中所有安装目录路径必须使用 `${PREFIX}`（大写）而非硬编码的 `/usr`。脚本 `generate-linglong-yaml.py` 会自动将 `${prefix}`（小写）替换为 `${PREFIX}`，并通过正则匹配将常见硬编码路径（如 `-DCMAKE_INSTALL_PREFIX=/usr`、`DESTDIR=/usr`、`--prefix=/usr`、`PREFIX=/usr/local` 等）替换为 `${PREFIX}`，作为 LLM 生成的 `build_section` 的安全网层
-- `Build 段参考约束`：脚本通过 `referance/common-building-rules.yaml` 对 build 段进行双重检查：
-  - **必需命令检查**：build 段必须包含该工具类型的规范构建命令（如 cmake 需有 `cmake ... -DCMAKE_INSTALL_PREFIX=...`、构建命令、安装命令）。缺失命令打印 `[warn]` 提示，不阻断流程。支持 `one_of` 多选匹配（如 cmake 构建可用 `make`/`ninja`/`cmake --build`）。
-  - **禁用参数检查**：build 段禁止出现黑名单参数（如 cmake 工程中的 `DESTDIR=`）。检测到禁用参数时打印 `ERROR` 并阻断流程（exit 1）。
-  - **命令拆分规则**：先合并 `\` 续行，再按 `&&`/`;`/`||`/`\n` 拆分为独立命令，逐条匹配。`make && make install` 与 `make` + `make install` 分行两种写法均可正确识别。
+- `Build 段参考约束`：`referance/common-building-rules.yaml` 同时用于**生成**和**校验**：
+
+  - **生成阶段**：脚本通过 `common-building-rules.yaml` 生成规范构建命令模板，注入 `build_args` 和 `extra_args` 参数，补充缺失的必选命令
+  - **校验阶段**：对最终 build section 执行双重检查：
+    - **必需命令检查**：build 段必须包含该工具类型的规范构建命令。缺失命令自动从参考补充，并打印 `[supplement]` 提示
+    - **禁用参数检查**：build 段禁止出现黑名单参数（如 cmake 工程中的 `DESTDIR=`）。检测到禁用参数时打印 `ERROR` 并阻断流程（exit 1）
+    - **命令拆分规则**：先合并 `\` 续行，再按 `&&`/`;`/`||`/`\n` 拆分为独立命令，逐条匹配
 
 ## 默认值配置 (`skills/config/linglong-defaults.json`)
 

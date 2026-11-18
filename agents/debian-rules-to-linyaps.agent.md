@@ -280,10 +280,16 @@ debian_path: <项目路径>/debian
 control_info: <上一步输出的 control 信息>
 ```
 
-**执行方式**：
-- 读取 `debian/rules`, `debian/changelog`, `debian/*.install` 等文件
+**A3.1 机械分析（脚本）**
 - 执行 `scripts/analyze-rules.py <project_path> <debian_path> [control_yaml]`
-- 输出最终 YAML（含 build_section、baseline、resources）
+- 输出: `build_tool`, `build_args`, `baseline`, `resources`
+
+**A3.2 LLM 语义分析**
+- 读取 `debian/rules` 完整内容
+- 按 `src2linyaps.debian.analyze-rules` SKILL.md 指引执行语义分析
+- 识别额外编译参数 → 输出 `extra_args`
+- 输出完整 `build_section`（含 LLM 分析参数）
+- 合并 A3.1 + A3.2 输出 → 最终 YAML（含 `build_section`, `build_tool`, `build_args`, `extra_args`, `baseline`, `resources`）
 
 #### Step A4: 工程生成
 
@@ -308,8 +314,10 @@ command: ""                     # 默认值，用户可覆盖
   python3 generate-linglong-yaml.py \
     --control-info <control_info.yaml> \
     --build-section "<build_section>" \
-    --package-version <baseline> \
     --build-tool <tool_type> \
+    --build-args '<build_args_json>' \
+    --extra-args '<extra_args_string>' \
+    --package-version <baseline> \
     --defaults skills/config/linglong-defaults.json \
     --output output/${tag}/linglong.yaml
   ```
@@ -464,8 +472,10 @@ python3 skills/src2linyaps.debian.analyze-rules/scripts/analyze-rules.py <projec
 python3 skills/src2linyaps.debian.build-res-generate/scripts/generate-linglong-yaml.py \
   --control-info <control_info.yaml> \
   --build-section "<build_section>" \
-  --package-version <baseline> \
   --build-tool <tool_type> \
+  --build-args '<build_args_json>' \
+  --extra-args '<extra_args_string>' \
+  --package-version <baseline> \
   --defaults skills/config/linglong-defaults.json \
   --output output/${tag}/linglong.yaml
 ```

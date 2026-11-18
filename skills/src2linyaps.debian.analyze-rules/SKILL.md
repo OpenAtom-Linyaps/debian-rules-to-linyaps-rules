@@ -45,7 +45,17 @@ user-invocable: false
    - make: 生成 `make -j$(nproc)` + `make install DESTDIR=${prefix}`
    - autotools: 生成 `./configure --prefix=${prefix} ...` + `make -j$(nproc)` + `make install`
    - 未知工具类型: 使用默认资源拷贝命令
-8. 组装最终 YAML（含 build_section 字段）
+8. **LLM 语义分析 `debian/rules`**（补充步骤，在脚本分析后执行）：
+   a. 读取 `debian/rules` 完整内容
+   b. 识别额外有意义的编译参数：
+      - 关键 `--enable-*` / `--disable-*`（过滤平台无关项如 `--disable-d3d11va`、`--disable-wasapi`）
+      - `--with-*` / `--without-*`
+      - `CFLAGS` / `CXXFLAGS` / `LDFLAGS` 环境变量
+      - 其他自定义参数（如 `--docdir`、`--with-binary-version`）
+   c. 与 `build_args`（机械分析输出）去重
+   d. 输出 `extra_args`（字符串，追加到 configure 命令末尾）
+   e. 输出 `build_section`（完整自定义构建段，包含 LLM 分析的所有参数）
+9. 组装最终 YAML（含 build_section、extra_args 字段）
 
 ## 输出
 
@@ -79,6 +89,7 @@ build_section: |
     -DBUILD_TESTING=OFF
   cmake --build build-linglong -j$(nproc)
   cmake --install build-linglong
+extra_args: "--enable-qt --enable-dbus --enable-udev"
 ```
 
 ## 约束
